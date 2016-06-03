@@ -1,0 +1,19 @@
+{
+	"ImportPath": "github.com/fagongzi/goetty",
+	"GoVersion": "go1.6",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/CodisLabs/codis/pkg/utils/atomic2",
+			"Comment": "2.0.14",
+			"Rev": "3a771a8ccc896140856e248338bbb4388f8467d9"
+		},
+		{
+			"ImportPath": "github.com/satori/go.uuid",
+			"Comment": "v1.0.0",
+			"Rev": "f9ab0dce87d815821e221626b772e3475a0d2749"
+		}
+	]
+}
