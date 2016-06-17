@@ -3,6 +3,7 @@ package goetty
 import (
 	"net"
 	"sync"
+	"time"
 )
 
 type IOSession interface {
@@ -10,6 +11,7 @@ type IOSession interface {
 	Hash() int
 	Close() error
 	Read() (interface{}, error)
+	ReadTimeout(timeout time.Duration) (interface{}, error)
 	Write(msg interface{}) error
 	SetAttr(key string, value interface{})
 	GetAttr(key string) interface{}
@@ -34,7 +36,11 @@ func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
 }
 
 func (self clientIOSession) Read() (interface{}, error) {
-	return self.svr.read(self.conn)
+	return self.svr.read(self.conn, 0)
+}
+
+func (self clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error) {
+	return self.svr.read(self.conn, timeout)
 }
 
 func (self clientIOSession) Write(msg interface{}) error {
@@ -55,16 +61,15 @@ func (self clientIOSession) Hash() int {
 
 func (self clientIOSession) SetAttr(key string, value interface{}) {
 	self.Lock()
-	defer self.Unlock()
-
 	self.attrs[key] = value
+	self.Unlock()
 }
 
 func (self clientIOSession) GetAttr(key string) interface{} {
 	self.Lock()
-	defer self.Unlock()
-
-	return self.attrs[key]
+	v := self.attrs[key]
+	self.Unlock()
+	return v
 }
 
 func (self clientIOSession) RemoteAddr() string {

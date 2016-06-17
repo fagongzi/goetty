@@ -148,8 +148,8 @@ func (self *Server) Serve(loopFn func(IOSession) error) error {
 		self.addSession(session)
 
 		go func() {
-			defer self.deleteSession(session)
 			loopFn(session)
+			self.deleteSession(session)
 		}()
 	}
 }
@@ -162,60 +162,61 @@ func (self *Server) closeSession(session IOSession) {
 func (self *Server) addSession(session IOSession) {
 	m := self.sessionMaps[session.Hash()%DEFAULT_SESSION_SIZE]
 	m.Lock()
-	defer m.Unlock()
-
 	m.sessions[session.Id()] = session
+	m.Unlock()
 }
 
 func (self *Server) deleteSession(session IOSession) {
 	m := self.sessionMaps[session.Hash()%DEFAULT_SESSION_SIZE]
 	m.Lock()
-	defer m.Unlock()
-
 	delete(m.sessions, session.Id())
+	m.Unlock()
 }
 
 func (self *Server) GetSession(id interface{}) IOSession {
 	m := self.sessionMaps[getHash(id)%DEFAULT_SESSION_SIZE]
 	m.RLock()
-	defer m.RUnlock()
-
-	return m.sessions[id]
+	s := m.sessions[id]
+	m.RUnlock()
+	return s
 }
 
-func (self *Server) read(conn net.Conn) (interface{}, error) {
+func (self *Server) read(conn net.Conn, timeout time.Duration) (interface{}, error) {
 	buf, ok := self.in.Get().(*ByteBuf)
 
 	if !ok {
 		buf = NewByteBuf(self.readBufSize)
 	}
 
-	defer func() {
-		buf.Clear()
-		if !ok {
-			self.in.Put(buf)
-		}
-	}()
+	var msg interface{}
+	var err error
+	var complete bool
 
 	for {
-		_, err := buf.ReadFrom(conn)
+		if 0 != timeout {
+			conn.SetReadDeadline(time.Now().Add(timeout))
+		}
+
+		_, err = buf.ReadFrom(conn)
 
 		if err != nil {
 			return nil, err
 		}
 
-		complete, msg, err := self.decoder.Decode(buf)
+		complete, msg, err = self.decoder.Decode(buf)
 
 		if nil != err {
-			return nil, err
+			break
 		}
 
 		if complete {
-			return msg, nil
+			break
 		}
 	}
 
-	return nil, nil
+	buf.Clear()
+	self.in.Put(buf)
+	return msg, err
 }
 
 func (self *Server) write(msg interface{}, conn net.Conn) error {
@@ -225,16 +226,11 @@ func (self *Server) write(msg interface{}, conn net.Conn) error {
 		buf = NewByteBuf(self.writeBufSize)
 	}
 
-	defer func() {
-		buf.Clear()
-		if !ok {
-			self.out.Put(buf)
-		}
-	}()
-
 	err := self.encoder.Encode(msg, buf)
 
 	if err != nil {
+		buf.Clear()
+		self.out.Put(buf)
 		return err
 	}
 
@@ -243,12 +239,18 @@ func (self *Server) write(msg interface{}, conn net.Conn) error {
 	n, err := conn.Write(bytes)
 
 	if err != nil {
+		buf.Clear()
+		self.out.Put(buf)
 		return err
 	}
 
 	if n != len(bytes) {
+		buf.Clear()
+		self.out.Put(buf)
 		return WriteErr
 	}
 
+	buf.Clear()
+	self.out.Put(buf)
 	return nil
 }

@@ -47,7 +47,6 @@ func NewSimpleTimeWheel(tick time.Duration, periodCount int64) *SimpleTimeWheel 
 
 func (t *SimpleTimeWheel) AddWithId(timeout time.Duration, key string, callback func(key string)) {
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
 
 	index := t.passed() + int64(float64(timeout.Nanoseconds())/float64(t.tick.Nanoseconds())+0.5)
 
@@ -59,6 +58,7 @@ func (t *SimpleTimeWheel) AddWithId(timeout time.Duration, key string, callback 
 
 	l.PushBack(key)
 	t.callbacks[key] = callback
+	t.mutex.Unlock()
 }
 
 func (t *SimpleTimeWheel) Add(timeout time.Duration, callback func(key string)) string {
@@ -69,8 +69,8 @@ func (t *SimpleTimeWheel) Add(timeout time.Duration, callback func(key string)) 
 
 func (t *SimpleTimeWheel) Cancel(key string) {
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
 	delete(t.callbacks, key)
+	t.mutex.Unlock()
 }
 
 func (t *SimpleTimeWheel) Start() {
@@ -104,7 +104,6 @@ func (t *SimpleTimeWheel) turn() {
 
 func (t *SimpleTimeWheel) doTimeout() {
 	timeKey := t.passed()
-	defer delete(t.timeoutMap, timeKey)
 
 	keys, ok := t.timeoutMap[timeKey]
 
@@ -114,10 +113,12 @@ func (t *SimpleTimeWheel) doTimeout() {
 			f, _ := t.callbacks[key]
 			if nil != f {
 				delete(t.callbacks, key)
-				go f(key) // 防止f函数执行过长，导致阻塞
+				f(key)
 			}
 		}
 	}
+
+	delete(t.timeoutMap, timeKey)
 }
 
 func (t *SimpleTimeWheel) passed() int64 {

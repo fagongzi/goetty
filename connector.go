@@ -76,12 +76,15 @@ func (c *Connector) Connect() (bool, error) {
 }
 
 func (c *Connector) Close() error {
-	defer c.reset()
-
 	if nil != c.conn {
-		return c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			c.reset()
+			return err
+		}
 	}
 
+	c.reset()
 	return nil
 }
 
@@ -99,49 +102,40 @@ func (c *Connector) Read() (interface{}, error) {
 		return nil, IllegalStateErr
 	}
 
-	defer c.in.Clear()
+	var msg interface{}
+	var err error
+	var complete bool
 
 	for {
-		_, err := c.in.ReadFrom(c.conn)
+		_, err = c.in.ReadFrom(c.conn)
 
 		if err != nil {
 			return nil, err
 		}
 
-		complete, msg, err := c.decoder.Decode(c.in)
+		complete, msg, err = c.decoder.Decode(c.in)
 
-		if nil != err {
-			return nil, err
-		}
-
-		if complete {
-			return msg, nil
+		if nil != err || complete {
+			break
 		}
 	}
 
-	return nil, nil
+	c.in.Clear()
+	return msg, err
 }
 
 func (c *Connector) Write(msg interface{}) error {
 	if c.IsConnected() {
-		defer c.bindWriteTimeout()
-
 		buf, ok := c.out.Get().(*ByteBuf)
 
 		if !ok {
 			buf = NewByteBuf(c.writeBufSize)
 		}
 
-		defer func() {
-			buf.Clear()
-			if !ok {
-				c.out.Put(buf)
-			}
-		}()
-
 		err := c.encoder.Encode(msg, buf)
 
 		if err != nil {
+			c.writeRelease(buf)
 			return err
 		}
 
@@ -150,19 +144,28 @@ func (c *Connector) Write(msg interface{}) error {
 		n, err := c.conn.Write(bytes)
 
 		if err != nil {
+			c.writeRelease(buf)
 			return err
 		}
 
 		c.cancelWriteTimeout()
 
 		if n != len(bytes) {
+			c.writeRelease(buf)
 			return WriteErr
 		}
 
+		c.writeRelease(buf)
 		return nil
 	}
 
 	return IllegalStateErr
+}
+
+func (c *Connector) writeRelease(buf *ByteBuf) {
+	buf.Clear()
+	c.out.Put(buf)
+	c.bindWriteTimeout()
 }
 
 func (c *Connector) bindWriteTimeout() {
