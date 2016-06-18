@@ -16,11 +16,9 @@ var (
 type Conf struct {
 	Addr                   string
 	TimeoutConnectToServer time.Duration
-	TimeoutWrite           time.Duration
-	TimeoutRead            time.Duration
-	TimeWheel              *HashedTimeWheel
 
-	ReadTimeoutFn  func(string, *Connector)
+	TimeWheel      *HashedTimeWheel
+	TimeoutWrite   time.Duration
 	WriteTimeoutFn func(string, *Connector)
 }
 
@@ -34,7 +32,7 @@ type Connector struct {
 	connected    bool
 	writeBufSize int
 
-	timeoutReadKey, timeoutWriteKey string
+	timeoutWriteKey string
 
 	in  *ByteBuf
 	out sync.Pool
@@ -98,6 +96,10 @@ func (c *Connector) reset() {
 }
 
 func (c *Connector) Read() (interface{}, error) {
+	return c.ReadTimeout(0)
+}
+
+func (c *Connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
 	if !c.IsConnected() {
 		return nil, IllegalStateErr
 	}
@@ -107,6 +109,10 @@ func (c *Connector) Read() (interface{}, error) {
 	var complete bool
 
 	for {
+		if 0 != timeout {
+			c.conn.SetReadDeadline(time.Now().Add(timeout))
+		}
+
 		_, err = c.in.ReadFrom(c.conn)
 
 		if err != nil {
@@ -169,11 +175,15 @@ func (c *Connector) writeRelease(buf *ByteBuf) {
 }
 
 func (c *Connector) bindWriteTimeout() {
-	c.timeoutWriteKey = c.cnf.TimeWheel.Add(c.cnf.TimeoutWrite, c.writeTimeout)
+	if c.cnf.WriteTimeoutFn != nil {
+		c.timeoutWriteKey = c.cnf.TimeWheel.Add(c.cnf.TimeoutWrite, c.writeTimeout)
+	}
 }
 
 func (c *Connector) cancelWriteTimeout() {
-	c.cnf.TimeWheel.Cancel(c.timeoutWriteKey)
+	if c.cnf.WriteTimeoutFn != nil {
+		c.cnf.TimeWheel.Cancel(c.timeoutWriteKey)
+	}
 }
 
 func (c *Connector) writeTimeout(key string) {

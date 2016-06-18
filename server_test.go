@@ -70,7 +70,6 @@ func TestReceivedMsg(t *testing.T) {
 		time.Sleep(time.Second * 2)
 		cnf := &Conf{
 			Addr:                   SERVER_ADDR,
-			TimeoutRead:            time.Second * 2,
 			TimeoutWrite:           time.Second * 2,
 			TimeoutConnectToServer: time.Second * 5,
 			TimeWheel:              tw,

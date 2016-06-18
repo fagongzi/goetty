@@ -46,7 +46,7 @@ func TestSimpleTimeWheelInMorePeriod(t *testing.T) {
 		called = true
 	})
 
-	time.Sleep(time.Millisecond * 101)
+	time.Sleep(time.Millisecond * 200)
 
 	if !called {
 		t.Error("failure.")
