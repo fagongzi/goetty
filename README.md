@@ -5,7 +5,7 @@ Goetty is a framework to help you build socket application.
 Example
 --------
 codec
-```
+```go
 package example
 
 import (
@@ -38,7 +38,7 @@ func (self StringEncoder) Encode(data interface{}, out *ByteBuf) error {
 ```
 
 server
-```
+```go
 package example
 
 import (
@@ -83,7 +83,7 @@ func (self *EchoServer) doConnection(session goetty.IOSession) {
 ```
 
 client
-```
+```go
 package example
 
 import (
