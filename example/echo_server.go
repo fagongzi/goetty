@@ -13,15 +13,15 @@ type EchoServer struct {
 func NewEchoServer(addr string) *EchoServer {
 	return &EchoServer{
 		addr:   addr,
-		server: goetty.NewServer(addr, NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, NewInt64IdGenerator()),
+		server: goetty.NewServer(addr, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, goetty.NewInt64IdGenerator()),
 	}
 }
 
 func (self *EchoServer) Serve() error {
-	return self.server.Serve(loopFn)
+	return self.server.Serve(self.doConnection)
 }
 
-func (self *EchoServer) doConnection(session goetty.IOSession) {
+func (self *EchoServer) doConnection(session goetty.IOSession) error {
 	defer session.Close() // close the connection
 
 	fmt.Printf("A new connection from <%s>", session.RemoteAddr())
@@ -38,4 +38,6 @@ func (self *EchoServer) doConnection(session goetty.IOSession) {
 		// echo msg back
 		session.Write(msg)
 	}
+
+	return nil
 }

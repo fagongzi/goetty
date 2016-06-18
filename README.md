@@ -5,7 +5,7 @@ Goetty is a framework to help you build socket application.
 Example
 --------
 codec
-```
+```go
 package example
 
 import (
@@ -15,7 +15,7 @@ import (
 type StringDecoder struct {
 }
 
-func (decoder StringDecoder) Decode(in *ByteBuf) (bool, interface{}, error) {
+func (decoder StringDecoder) Decode(in *goetty.ByteBuf) (bool, interface{}, error) {
     _, data, err := in.ReadMarkedBytes()
 
     if err != nil {
@@ -28,17 +28,18 @@ func (decoder StringDecoder) Decode(in *ByteBuf) (bool, interface{}, error) {
 type StringEncoder struct {
 }
 
-func (self StringEncoder) Encode(data interface{}, out *ByteBuf) error {
+func (self StringEncoder) Encode(data interface{}, out *goetty.ByteBuf) error {
     msg, _ := data.(string)
     bytes := []byte(msg)
     out.WriteInt(len(bytes))
     out.Write(bytes)
     return nil
 }
+
 ```
 
 server
-```
+```go
 package example
 
 import (
@@ -54,15 +55,15 @@ type EchoServer struct {
 func NewEchoServer(addr string) *EchoServer {
     return &EchoServer{
         addr:   addr,
-        server: goetty.NewServer(addr, NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, NewInt64IdGenerator()),
+        server: goetty.NewServer(addr, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, goetty.NewInt64IdGenerator()),
     }
 }
 
 func (self *EchoServer) Serve() error {
-    return self.server.Serve(loopFn)
+    return self.server.Serve(self.doConnection)
 }
 
-func (self *EchoServer) doConnection(session goetty.IOSession) {
+func (self *EchoServer) doConnection(session goetty.IOSession) error {
     defer session.Close() // close the connection
 
     fmt.Printf("A new connection from <%s>", session.RemoteAddr())
@@ -79,15 +80,20 @@ func (self *EchoServer) doConnection(session goetty.IOSession) {
         // echo msg back
         session.Write(msg)
     }
+
+    return nil
 }
+
 ```
 
 client
-```
+```go
 package example
 
 import (
+    "fmt"
     "github.com/fagongzi/goetty"
+    "time"
 )
 
 type EchoClient struct {
@@ -96,20 +102,20 @@ type EchoClient struct {
 }
 
 func NewEchoClient(serverAddr string) (*EchoClient, error) {
-    cnf := &Conf{
+    cnf := &goetty.Conf{
         Addr: serverAddr,
         TimeoutConnectToServer: time.Second * 3,
     }
 
     c := &EchoClient{
         serverAddr: serverAddr,
-        conn:       NewConnector(cnf, NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}),
+        conn:       goetty.NewConnector(cnf, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}),
     }
 
     // if you want to send heartbeat to server, you can set conf as below, otherwise not set
 
     // create a timewheel to calc timeout
-    tw := NewHashedTimeWheel(time.Second, 60, 3)
+    tw := goetty.NewHashedTimeWheel(time.Second, 60, 3)
     tw.Start()
 
     cnf.TimeoutWrite = time.Second * 3
@@ -132,7 +138,7 @@ func (self *EchoClient) SendMsg(msg string) error {
 func (self *EchoClient) ReadLoop() error {
     // start loop to read msg from server
     for {
-        msg, err := connector.Read() // if you want set a read deadline, you can use 'connector.ReadTimeout(timeout)'
+        msg, err := self.conn.Read() // if you want set a read deadline, you can use 'connector.ReadTimeout(timeout)'
         if err != nil {
             fmt.Printf("read msg from server<%s> failure", self.serverAddr)
             return err

@@ -1,7 +1,9 @@
 package example
 
 import (
+	"fmt"
 	"github.com/fagongzi/goetty"
+	"time"
 )
 
 type EchoClient struct {
@@ -10,20 +12,20 @@ type EchoClient struct {
 }
 
 func NewEchoClient(serverAddr string) (*EchoClient, error) {
-	cnf := &Conf{
+	cnf := &goetty.Conf{
 		Addr: serverAddr,
 		TimeoutConnectToServer: time.Second * 3,
 	}
 
 	c := &EchoClient{
 		serverAddr: serverAddr,
-		conn:       NewConnector(cnf, NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}),
+		conn:       goetty.NewConnector(cnf, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}),
 	}
 
 	// if you want to send heartbeat to server, you can set conf as below, otherwise not set
 
 	// create a timewheel to calc timeout
-	tw := NewHashedTimeWheel(time.Second, 60, 3)
+	tw := goetty.NewHashedTimeWheel(time.Second, 60, 3)
 	tw.Start()
 
 	cnf.TimeoutWrite = time.Second * 3
@@ -46,7 +48,7 @@ func (self *EchoClient) SendMsg(msg string) error {
 func (self *EchoClient) ReadLoop() error {
 	// start loop to read msg from server
 	for {
-		msg, err := connector.Read() // if you want set a read deadline, you can use 'connector.ReadTimeout(timeout)'
+		msg, err := self.conn.Read() // if you want set a read deadline, you can use 'connector.ReadTimeout(timeout)'
 		if err != nil {
 			fmt.Printf("read msg from server<%s> failure", self.serverAddr)
 			return err
