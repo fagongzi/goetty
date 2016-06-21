@@ -34,6 +34,11 @@ func NewUUIDV4IdGenerator() IdGenerator {
 	return &UUIDV4IdGenerator{}
 }
 
+var (
+	in  sync.Pool
+	out sync.Pool
+)
+
 type sessionMap struct {
 	sync.RWMutex
 	sessions map[interface{}]IOSession
@@ -46,9 +51,6 @@ type Server struct {
 	listener *net.TCPListener
 
 	sessionMaps map[int]*sessionMap
-
-	in  sync.Pool
-	out sync.Pool
 
 	readBufSize, writeBufSize int
 
@@ -181,76 +183,3 @@ func (self *Server) GetSession(id interface{}) IOSession {
 	return s
 }
 
-func (self *Server) read(conn net.Conn, timeout time.Duration) (interface{}, error) {
-	buf, ok := self.in.Get().(*ByteBuf)
-
-	if !ok {
-		buf = NewByteBuf(self.readBufSize)
-	}
-
-	var msg interface{}
-	var err error
-	var complete bool
-
-	for {
-		if 0 != timeout {
-			conn.SetReadDeadline(time.Now().Add(timeout))
-		}
-
-		_, err = buf.ReadFrom(conn)
-
-		if err != nil {
-			return nil, err
-		}
-
-		complete, msg, err = self.decoder.Decode(buf)
-
-		if nil != err {
-			break
-		}
-
-		if complete {
-			break
-		}
-	}
-
-	buf.Clear()
-	self.in.Put(buf)
-	return msg, err
-}
-
-func (self *Server) write(msg interface{}, conn net.Conn) error {
-	buf, ok := self.out.Get().(*ByteBuf)
-
-	if !ok {
-		buf = NewByteBuf(self.writeBufSize)
-	}
-
-	err := self.encoder.Encode(msg, buf)
-
-	if err != nil {
-		buf.Clear()
-		self.out.Put(buf)
-		return err
-	}
-
-	_, bytes, _ := buf.ReadAll()
-
-	n, err := conn.Write(bytes)
-
-	if err != nil {
-		buf.Clear()
-		self.out.Put(buf)
-		return err
-	}
-
-	if n != len(bytes) {
-		buf.Clear()
-		self.out.Put(buf)
-		return WriteErr
-	}
-
-	buf.Clear()
-	self.out.Put(buf)
-	return nil
-}

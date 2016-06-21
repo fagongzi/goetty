@@ -24,6 +24,7 @@ type clientIOSession struct {
 	conn  net.Conn
 	svr   *Server
 	attrs map[string]interface{}
+	buf   *ByteBuf
 }
 
 func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
@@ -32,19 +33,84 @@ func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
 		conn:  conn,
 		svr:   svr,
 		attrs: make(map[string]interface{}),
+		buf:   NewByteBuf(svr.readBufSize),
 	}
 }
 
 func (self clientIOSession) Read() (interface{}, error) {
-	return self.svr.read(self.conn, 0)
+	return self.ReadTimeout(0)
 }
 
 func (self clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error) {
-	return self.svr.read(self.conn, timeout)
+	var msg interface{}
+	var err error
+	var complete bool
+
+	for {
+		if 0 != timeout {
+			self.conn.SetReadDeadline(time.Now().Add(timeout))
+		}
+
+		_, err = self.buf.ReadFrom(self.conn)
+
+		if err != nil {
+			self.buf.Clear()
+			return nil, err
+		}
+
+		complete, msg, err = self.svr.decoder.Decode(self.buf)
+
+		if nil != err {
+			self.buf.Clear()
+			return nil, err
+		}
+
+		if complete {
+			break
+		}
+	}
+
+	if self.buf.Readable() == 0 {
+		self.buf.Clear()
+	}
+
+	return msg, err
 }
 
 func (self clientIOSession) Write(msg interface{}) error {
-	return self.svr.write(msg, self.conn)
+	buf, ok := out.Get().(*ByteBuf)
+
+	if !ok {
+		buf = NewByteBuf(self.svr.writeBufSize)
+	}
+
+	err := self.svr.encoder.Encode(msg, buf)
+
+	if err != nil {
+		buf.Clear()
+		out.Put(buf)
+		return err
+	}
+
+	_, bytes, _ := buf.ReadAll()
+
+	n, err := self.conn.Write(bytes)
+
+	if err != nil {
+		buf.Clear()
+		out.Put(buf)
+		return err
+	}
+
+	if n != len(bytes) {
+		buf.Clear()
+		out.Put(buf)
+		return WriteErr
+	}
+
+	buf.Clear()
+	out.Put(buf)
+	return nil
 }
 
 func (self clientIOSession) Close() error {
@@ -91,3 +157,4 @@ func getHash(id interface{}) int {
 
 	return 0
 }
+
