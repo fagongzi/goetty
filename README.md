@@ -1,6 +1,6 @@
 goetty
 -------
-Goetty is a framework to help you build socket application.
+Goetty is a framework to help you build socket application. current version is **v0.0.1**
 
 Example
 --------
