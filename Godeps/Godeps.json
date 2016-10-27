@@ -1,6 +1,7 @@
 {
 	"ImportPath": "github.com/fagongzi/goetty",
 	"GoVersion": "go1.6",
+	"GodepVersion": "v74",
 	"Packages": [
 		"./..."
 	],

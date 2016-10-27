@@ -5,17 +5,21 @@ import (
 	"time"
 )
 
+// StringEncoder string encoder
 type StringEncoder struct {
 }
 
+// StringDecoder string decoder
 type StringDecoder struct {
 }
 
+// NewStringEncoder create a string encoder
 func NewStringEncoder() Encoder {
 	return &StringEncoder{}
 }
 
-func (self StringEncoder) Encode(data interface{}, out *ByteBuf) error {
+// Encode encod
+func (e StringEncoder) Encode(data interface{}, out *ByteBuf) error {
 	msg, _ := data.(string)
 	b := []byte(msg)
 
@@ -25,11 +29,13 @@ func (self StringEncoder) Encode(data interface{}, out *ByteBuf) error {
 	return nil
 }
 
+// NewStringDecoder create a string decoder
 func NewStringDecoder() Decoder {
 	return &StringDecoder{}
 }
 
-func (self StringDecoder) Decode(in *ByteBuf) (complete bool, msg interface{}, err error) {
+// Decode decode
+func (d StringDecoder) Decode(in *ByteBuf) (complete bool, msg interface{}, err error) {
 	_, data, err := in.ReadMarkedBytes()
 
 	if err != nil {
@@ -40,20 +46,20 @@ func (self StringDecoder) Decode(in *ByteBuf) (complete bool, msg interface{}, e
 }
 
 var (
-	SERVER_ADDR = "127.0.0.1:12345"
-	decoder     = NewIntLengthFieldBasedDecoder(NewStringDecoder())
-	encoder     = NewStringEncoder()
+	serverAddr = "127.0.0.1:12345"
+	decoder    = NewIntLengthFieldBasedDecoder(NewStringDecoder())
+	encoder    = NewStringEncoder()
 )
 
 func TestServerStart(t *testing.T) {
-	server := NewServer(SERVER_ADDR, decoder, encoder, NewInt64IdGenerator())
+	server := NewServer(serverAddr, decoder, encoder, NewInt64IDGenerator())
 
 	go func() {
 		time.Sleep(time.Second * 2)
 		server.Stop()
 	}()
 
-	err := server.Serve(func(session IOSession) error { return nil })
+	err := server.Start(func(session IOSession) error { return nil })
 
 	if err != nil {
 		t.Error(err)
@@ -61,7 +67,7 @@ func TestServerStart(t *testing.T) {
 }
 
 func TestReceivedMsg(t *testing.T) {
-	server := NewServer(SERVER_ADDR, NewIntLengthFieldBasedDecoder(NewStringDecoder()), NewStringEncoder(), NewInt64IdGenerator())
+	server := NewServer(serverAddr, NewIntLengthFieldBasedDecoder(NewStringDecoder()), NewStringEncoder(), NewInt64IDGenerator())
 
 	go func() {
 		tw := NewHashedTimeWheel(time.Second, 60, 2)
@@ -69,7 +75,7 @@ func TestReceivedMsg(t *testing.T) {
 
 		time.Sleep(time.Second * 2)
 		cnf := &Conf{
-			Addr:                   SERVER_ADDR,
+			Addr:                   serverAddr,
 			TimeoutWrite:           time.Second * 2,
 			TimeoutConnectToServer: time.Second * 5,
 			TimeWheel:              tw,
@@ -84,21 +90,21 @@ func TestReceivedMsg(t *testing.T) {
 		}
 	}()
 
-	err := server.Serve(func(session IOSession) error {
+	err := server.Start(func(session IOSession) error {
 		defer server.Stop()
 
 		msg, err := session.Read()
 		if err != nil {
 			t.Error(err)
 			return err
+		}
+
+		s, ok := msg.(string)
+		if !ok {
+			t.Error("received err, not string")
 		} else {
-			s, ok := msg.(string)
-			if !ok {
-				t.Error("received err, not string")
-			} else {
-				if s != "hello" {
-					t.Error("received not match")
-				}
+			if s != "hello" {
+				t.Error("received not match")
 			}
 		}
 

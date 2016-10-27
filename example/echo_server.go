@@ -2,28 +2,30 @@ package example
 
 import (
 	"fmt"
+
 	"github.com/fagongzi/goetty"
 )
 
+// EchoServer echo server
 type EchoServer struct {
 	addr   string
 	server *goetty.Server
 }
 
+// NewEchoServer create new server
 func NewEchoServer(addr string) *EchoServer {
 	return &EchoServer{
 		addr:   addr,
-		server: goetty.NewServer(addr, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, goetty.NewInt64IdGenerator()),
+		server: goetty.NewServer(addr, goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{}), &StringEncoder{}, goetty.NewInt64IDGenerator()),
 	}
 }
 
-func (self *EchoServer) Serve() error {
-	return self.server.Serve(self.doConnection)
+// Start start
+func (e *EchoServer) Start() error {
+	return e.server.Start(e.doConnection)
 }
 
-func (self *EchoServer) doConnection(session goetty.IOSession) error {
-	defer session.Close() // close the connection
-
+func (e *EchoServer) doConnection(session goetty.IOSession) error {
 	fmt.Printf("A new connection from <%s>", session.RemoteAddr())
 
 	// start loop for read msg from this connection
@@ -38,6 +40,4 @@ func (self *EchoServer) doConnection(session goetty.IOSession) error {
 		// echo msg back
 		session.Write(msg)
 	}
-
-	return nil
 }

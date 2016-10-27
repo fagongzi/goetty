@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Simple time wheel impl
+// SimpleTimeWheel Simple time wheel impl
 type SimpleTimeWheel struct {
 	timer *time.Ticker
 
@@ -28,6 +28,7 @@ type SimpleTimeWheel struct {
 	mutex *sync.Mutex
 }
 
+// NewSimpleTimeWheel create a simple time wheel
 func NewSimpleTimeWheel(tick time.Duration, periodCount int64) *SimpleTimeWheel {
 	timeWheel := &SimpleTimeWheel{
 		timer:       time.NewTicker(tick),
@@ -45,7 +46,8 @@ func NewSimpleTimeWheel(tick time.Duration, periodCount int64) *SimpleTimeWheel 
 	return timeWheel
 }
 
-func (t *SimpleTimeWheel) AddWithId(timeout time.Duration, key string, callback func(key string)) {
+// AddWithID add a timeout call with ID
+func (t *SimpleTimeWheel) AddWithID(timeout time.Duration, key string, callback func(key string)) {
 	t.mutex.Lock()
 
 	index := t.passed() + int64(float64(timeout.Nanoseconds())/float64(t.tick.Nanoseconds())+0.5)
@@ -61,18 +63,21 @@ func (t *SimpleTimeWheel) AddWithId(timeout time.Duration, key string, callback 
 	t.mutex.Unlock()
 }
 
+// Add add a timeout callback
 func (t *SimpleTimeWheel) Add(timeout time.Duration, callback func(key string)) string {
 	key := NewKey()
-	t.AddWithId(timeout, key, callback)
+	t.AddWithID(timeout, key, callback)
 	return key
 }
 
+// Cancel cancel a callback
 func (t *SimpleTimeWheel) Cancel(key string) {
 	t.mutex.Lock()
 	delete(t.callbacks, key)
 	t.mutex.Unlock()
 }
 
+// Start start a timeout calc
 func (t *SimpleTimeWheel) Start() {
 	go func() {
 		for {
@@ -82,6 +87,7 @@ func (t *SimpleTimeWheel) Start() {
 	}()
 }
 
+// Stop stop
 func (t *SimpleTimeWheel) Stop() {
 	if nil != t.timer {
 		t.timer.Stop()
@@ -125,11 +131,13 @@ func (t *SimpleTimeWheel) passed() int64 {
 	return t.periodCount*t.period + t.pos
 }
 
+// HashedTimeWheel hash Simple time wheel
 type HashedTimeWheel struct {
 	mask        int
 	wheelBucket []*SimpleTimeWheel
 }
 
+// NewHashedTimeWheel create a new HashedTimeWheel
 func NewHashedTimeWheel(duration time.Duration, periodCount int64, powOf2 int) *HashedTimeWheel {
 	max := int(math.Pow(2.0, float64(powOf2)))
 	h := &HashedTimeWheel{
@@ -142,18 +150,21 @@ func NewHashedTimeWheel(duration time.Duration, periodCount int64, powOf2 int) *
 	return h
 }
 
+// Add add a timeout calc
 func (h *HashedTimeWheel) Add(timeout time.Duration, callback func(key string)) string {
 	key := NewKey()
-	h.AddWithId(timeout, key, callback)
+	h.AddWithID(timeout, key, callback)
 	return key
 }
 
-func (h *HashedTimeWheel) AddWithId(timeout time.Duration, key string, callback func(key string)) string {
+// AddWithID add a timeout calc by ID
+func (h *HashedTimeWheel) AddWithID(timeout time.Duration, key string, callback func(key string)) string {
 	index := hashCode(key) & h.mask
-	h.wheelBucket[index].AddWithId(timeout, key, callback)
+	h.wheelBucket[index].AddWithID(timeout, key, callback)
 	return key
 }
 
+// Cancel calc a timeout
 func (h *HashedTimeWheel) Cancel(key string) {
 	index := hashCode(key) & h.mask
 	h.wheelBucket[index].Cancel(key)
@@ -165,18 +176,21 @@ func (h *HashedTimeWheel) init(duration time.Duration, periodCount int64, max in
 	}
 }
 
+// Start start timeout calc
 func (h *HashedTimeWheel) Start() {
 	for i := 0; i < len(h.wheelBucket); i++ {
 		go h.wheelBucket[i].Start()
 	}
 }
 
+// Stop stop timeout calc
 func (h *HashedTimeWheel) Stop() {
 	for i := 0; i < len(h.wheelBucket); i++ {
 		go h.wheelBucket[i].Stop()
 	}
 }
 
+// HashCode get has code
 func HashCode(v string) int {
 	return hashCode(v)
 }
