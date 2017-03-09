@@ -42,11 +42,6 @@ func NewUUIDV4IdGenerator() IDGenerator {
 	return &UUIDV4IdGenerator{}
 }
 
-var (
-	in  sync.Pool
-	out sync.Pool
-)
-
 type sessionMap struct {
 	sync.RWMutex
 	sessions map[interface{}]IOSession
