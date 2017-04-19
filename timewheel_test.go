@@ -7,14 +7,14 @@ import (
 
 func TestSimpleTimeWheelInOnePeriod(t *testing.T) {
 	called := false
-	w := NewSimpleTimeWheel(time.Millisecond, 60)
+	w := NewSimpleTimeWheel(time.Millisecond*10, 60)
 	w.Start()
 
 	w.Add(time.Millisecond*10, func(key string) {
 		called = true
 	})
 
-	time.Sleep(time.Millisecond * 11)
+	time.Sleep(time.Millisecond * 20)
 
 	if !called {
 		t.Error("failure.")
@@ -71,14 +71,14 @@ func TestSimpleTimeWheelInMorePeriodNot(t *testing.T) {
 
 func TestHashTimeWheelInOnePeriod(t *testing.T) {
 	called := false
-	w := NewHashedTimeWheel(time.Millisecond, 60, 2)
+	w := NewHashedTimeWheel(time.Millisecond*10, 60, 2)
 	w.Start()
 
 	w.Add(time.Millisecond*10, func(key string) {
 		called = true
 	})
 
-	time.Sleep(time.Millisecond * 11)
+	time.Sleep(time.Millisecond * 20)
 
 	if !called {
 		t.Error("failure.")
@@ -103,14 +103,14 @@ func TestHashTimeWheelInOnePeriodNot(t *testing.T) {
 
 func TestHashTimeWheelInMorePeriod(t *testing.T) {
 	called := false
-	w := NewHashedTimeWheel(time.Millisecond, 60, 2)
+	w := NewHashedTimeWheel(time.Millisecond*10, 60, 2)
 	w.Start()
 
 	w.Add(time.Millisecond*100, func(key string) {
 		called = true
 	})
 
-	time.Sleep(time.Millisecond * 102)
+	time.Sleep(time.Millisecond * 110)
 
 	if !called {
 		t.Error("failure.")
