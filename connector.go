@@ -3,6 +3,7 @@ package goetty
 import (
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -181,6 +182,25 @@ func (c *Connector) Write(msg interface{}) error {
 	}
 
 	return ErrIllegalState
+}
+
+// RemoteAddr get remote address
+func (c *Connector) RemoteAddr() string {
+	if nil != c.conn {
+		return c.conn.RemoteAddr().String()
+	}
+
+	return ""
+}
+
+// RemoteIP return remote ip address
+func (c *Connector) RemoteIP() string {
+	addr := c.RemoteAddr()
+	if addr == "" {
+		return ""
+	}
+
+	return strings.Split(addr, ":")[0]
 }
 
 func (c *Connector) writeRelease(buf *ByteBuf) {
