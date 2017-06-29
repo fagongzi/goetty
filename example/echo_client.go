@@ -10,7 +10,7 @@ import (
 // EchoClient echo client
 type EchoClient struct {
 	serverAddr string
-	conn       *goetty.Connector
+	conn       goetty.IOSession
 }
 
 // NewEchoClient new client
@@ -40,7 +40,7 @@ func NewEchoClient(serverAddr string) (*EchoClient, error) {
 	return c, err
 }
 
-func (c *EchoClient) writeHeartbeat(serverAddr string, conn *goetty.Connector) {
+func (c *EchoClient) writeHeartbeat(serverAddr string, conn goetty.IOSession) {
 	c.SendMsg("this is a heartbeat msg")
 }
 

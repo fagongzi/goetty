@@ -1,10 +1,17 @@
 package goetty
 
 import (
+	"errors"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+var (
+	// ErrConnectServerSide error for can't connect to client at server side
+	ErrConnectServerSide = errors.New("can't connect to client at server side")
 )
 
 // IOSession session
@@ -12,6 +19,8 @@ type IOSession interface {
 	ID() interface{}
 	Hash() int
 	Close() error
+	IsConnected() bool
+	Connect() (bool, error)
 	Read() (interface{}, error)
 	ReadTimeout(timeout time.Duration) (interface{}, error)
 	Write(msg interface{}) error
@@ -24,15 +33,17 @@ type IOSession interface {
 }
 
 type clientIOSession struct {
-	id   interface{}
-	conn net.Conn
-	svr  *Server
-
 	sync.RWMutex
-	attrs map[string]interface{}
 
-	in  *ByteBuf
-	out *ByteBuf
+	id  interface{}
+	svr *Server
+
+	conn   net.Conn
+	closed int32
+	in     *ByteBuf
+	out    *ByteBuf
+
+	attrs map[string]interface{}
 }
 
 func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
@@ -47,6 +58,14 @@ func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
 		in:    NewByteBuf(svr.readBufSize),
 		out:   NewByteBuf(svr.writeBufSize),
 	}
+}
+
+func (s *clientIOSession) Connect() (bool, error) {
+	return false, ErrConnectServerSide
+}
+
+func (s *clientIOSession) IsConnected() bool {
+	return nil != s.conn && atomic.LoadInt32(&s.closed) == 0
 }
 
 // Read read a msg, block until read msg or get a error
@@ -129,7 +148,17 @@ func (s *clientIOSession) WriteOutBuf() error {
 
 // Close close
 func (s *clientIOSession) Close() error {
-	return s.conn.Close()
+	s.Lock()
+	if s.conn == nil {
+		return nil
+	}
+
+	err := s.conn.Close()
+	s.conn = nil
+	atomic.StoreInt32(&s.closed, 1)
+	s.Unlock()
+
+	return err
 }
 
 // ID get id
