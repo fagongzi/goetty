@@ -73,6 +73,8 @@ func (c *Connector) Connect() (bool, error) {
 		return false, e
 	}
 
+	conn.(*net.TCPConn).SetNoDelay(true)
+	conn.(*net.TCPConn).SetLinger(0)
 	c.conn = conn
 	c.connected = true
 

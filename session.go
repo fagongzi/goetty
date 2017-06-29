@@ -2,6 +2,7 @@ package goetty
 
 import (
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,6 +20,7 @@ type IOSession interface {
 	SetAttr(key string, value interface{})
 	GetAttr(key string) interface{}
 	RemoteAddr() string
+	RemoteIP() string
 }
 
 type clientIOSession struct {
@@ -34,6 +36,9 @@ type clientIOSession struct {
 }
 
 func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
+	conn.(*net.TCPConn).SetNoDelay(true)
+	conn.(*net.TCPConn).SetLinger(0)
+
 	return &clientIOSession{
 		id:    id,
 		conn:  conn,
@@ -159,6 +164,16 @@ func (s *clientIOSession) RemoteAddr() string {
 	}
 
 	return ""
+}
+
+// RemoteIP return remote ip address
+func (s *clientIOSession) RemoteIP() string {
+	addr := s.RemoteAddr()
+	if addr == "" {
+		return ""
+	}
+
+	return strings.Split(addr, ":")[0]
 }
 
 func getHash(id interface{}) int {
