@@ -154,7 +154,7 @@ func (c *connector) IsConnected() bool {
 }
 
 func (c *connector) reset() {
-	atomic.StoreInt32(&c.closed, 0)
+	atomic.StoreInt32(&c.closed, 1)
 	c.conn = nil
 }
 
