@@ -2,6 +2,7 @@ package goetty
 
 import (
 	"errors"
+	"hash/crc32"
 	"net"
 	"strings"
 	"sync"
@@ -211,7 +212,7 @@ func getHash(id interface{}) int {
 	} else if v, ok := id.(int); ok {
 		return v
 	} else if v, ok := id.(string); ok {
-		return hashCode(v)
+		return int(crc32.ChecksumIEEE([]byte(v)))
 	}
 
 	return 0

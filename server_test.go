@@ -70,9 +70,7 @@ func TestReceivedMsg(t *testing.T) {
 	server := NewServer(serverAddr, NewIntLengthFieldBasedDecoder(NewStringDecoder()), NewStringEncoder(), NewInt64IDGenerator())
 
 	go func() {
-		tw := NewHashedTimeWheel(time.Second, 60, 2)
-		tw.Start()
-
+		tw := NewTimeoutWheel(WithTickInterval(time.Second))
 		time.Sleep(time.Second * 2)
 		cnf := &Conf{
 			Addr:                   serverAddr,

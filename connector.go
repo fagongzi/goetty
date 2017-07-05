@@ -22,18 +22,18 @@ var (
 type Conf struct {
 	Addr                   string
 	TimeoutConnectToServer time.Duration
-
-	TimeWheel      *HashedTimeWheel
-	TimeoutWrite   time.Duration
-	WriteTimeoutFn func(string, IOSession)
+	TimeWheel              *TimeoutWheel
+	TimeoutWrite           time.Duration
+	WriteTimeoutFn         func(string, IOSession)
 }
 
 type connector struct {
 	sync.RWMutex
 
-	cnf             *Conf
-	timeoutWriteKey string
-	attrs           map[string]interface{}
+	cnf   *Conf
+	attrs map[string]interface{}
+
+	lastTimeout Timeout
 
 	conn         net.Conn
 	decoder      Decoder
@@ -254,18 +254,18 @@ func (c *connector) writeRelease() {
 
 func (c *connector) bindWriteTimeout() {
 	if c.cnf.WriteTimeoutFn != nil {
-		c.timeoutWriteKey = c.cnf.TimeWheel.Add(c.cnf.TimeoutWrite, c.writeTimeout)
+		c.lastTimeout, _ = c.cnf.TimeWheel.Schedule(c.cnf.TimeoutWrite, c.writeTimeout, nil)
 	}
 }
 
 func (c *connector) cancelWriteTimeout() {
 	if c.cnf.WriteTimeoutFn != nil {
-		c.cnf.TimeWheel.Cancel(c.timeoutWriteKey)
+		c.lastTimeout.Stop()
 	}
 }
 
-func (c *connector) writeTimeout(key string) {
-	if c.timeoutWriteKey == key && c.cnf.WriteTimeoutFn != nil {
+func (c *connector) writeTimeout(arg interface{}) {
+	if c.cnf.WriteTimeoutFn != nil {
 		c.cnf.WriteTimeoutFn(c.cnf.Addr, c)
 	}
 }

@@ -27,12 +27,8 @@ func NewEchoClient(serverAddr string) (*EchoClient, error) {
 
 	// if you want to send heartbeat to server, you can set conf as below, otherwise not set
 
-	// create a timewheel to calc timeout
-	tw := goetty.NewHashedTimeWheel(time.Second, 60, 3)
-	tw.Start()
-
 	cnf.TimeoutWrite = time.Second * 3
-	cnf.TimeWheel = tw
+	cnf.TimeWheel = goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))
 	cnf.WriteTimeoutFn = c.writeHeartbeat
 
 	_, err := c.conn.Connect()

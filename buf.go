@@ -330,9 +330,10 @@ func (b *ByteBuf) WriteInt64(v int64) (n int, err error) {
 
 // WriteByte write a byte value to buf
 // return write bytes count, error
-func (b *ByteBuf) WriteByte(v byte) (n int, err error) {
+func (b *ByteBuf) WriteByte(v byte) error {
 	b.expansion(1)
-	return b.Write([]byte{v})
+	_, err := b.Write([]byte{v})
+	return err
 }
 
 func (b *ByteBuf) expansion(n int) {
