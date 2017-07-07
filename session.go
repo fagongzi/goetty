@@ -81,18 +81,22 @@ func (s *clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error
 	var complete bool
 
 	for {
-		if 0 != timeout {
-			s.conn.SetReadDeadline(time.Now().Add(timeout))
+		if s.in.Readable() > 0 {
+			complete, msg, err = s.svr.decoder.Decode(s.in)
+		} else {
+			if 0 != timeout {
+				s.conn.SetReadDeadline(time.Now().Add(timeout))
+			}
+
+			_, err = s.in.ReadFrom(s.conn)
+
+			if err != nil {
+				s.in.Clear()
+				return nil, err
+			}
+
+			complete, msg, err = s.svr.decoder.Decode(s.in)
 		}
-
-		_, err = s.in.ReadFrom(s.conn)
-
-		if err != nil {
-			s.in.Clear()
-			return nil, err
-		}
-
-		complete, msg, err = s.svr.decoder.Decode(s.in)
 
 		if nil != err {
 			s.in.Clear()

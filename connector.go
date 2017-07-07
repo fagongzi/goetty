@@ -174,17 +174,22 @@ func (c *connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
 	var complete bool
 
 	for {
-		if 0 != timeout {
-			c.conn.SetReadDeadline(time.Now().Add(timeout))
+		if c.in.Readable() > 0 {
+			complete, msg, err = c.decoder.Decode(c.in)
+		} else {
+			if 0 != timeout {
+				c.conn.SetReadDeadline(time.Now().Add(timeout))
+			}
+
+			_, err = c.in.ReadFrom(c.conn)
+
+			if err != nil {
+				c.in.Clear()
+				return nil, err
+			}
+
+			complete, msg, err = c.decoder.Decode(c.in)
 		}
-
-		_, err = c.in.ReadFrom(c.conn)
-
-		if err != nil {
-			return nil, err
-		}
-
-		complete, msg, err = c.decoder.Decode(c.in)
 
 		if nil != err || complete {
 			break
