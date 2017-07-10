@@ -83,19 +83,12 @@ func (s *clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error
 	for {
 		if s.in.Readable() > 0 {
 			complete, msg, err = s.svr.decoder.Decode(s.in)
+
+			if !complete && err == nil {
+				complete, msg, err = s.readFromConn(timeout)
+			}
 		} else {
-			if 0 != timeout {
-				s.conn.SetReadDeadline(time.Now().Add(timeout))
-			}
-
-			_, err = s.in.ReadFrom(s.conn)
-
-			if err != nil {
-				s.in.Clear()
-				return nil, err
-			}
-
-			complete, msg, err = s.svr.decoder.Decode(s.in)
+			complete, msg, err = s.readFromConn(timeout)
 		}
 
 		if nil != err {
@@ -208,6 +201,20 @@ func (s *clientIOSession) RemoteIP() string {
 	}
 
 	return strings.Split(addr, ":")[0]
+}
+
+func (s *clientIOSession) readFromConn(timeout time.Duration) (bool, interface{}, error) {
+	if 0 != timeout {
+		s.conn.SetReadDeadline(time.Now().Add(timeout))
+	}
+
+	_, err := s.in.ReadFrom(s.conn)
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	return s.svr.decoder.Decode(s.in)
 }
 
 func getHash(id interface{}) int {

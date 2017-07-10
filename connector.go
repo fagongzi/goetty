@@ -176,27 +176,28 @@ func (c *connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
 	for {
 		if c.in.Readable() > 0 {
 			complete, msg, err = c.decoder.Decode(c.in)
+
+			if !complete && err == nil {
+				complete, msg, err = c.readFromConn(timeout)
+			}
 		} else {
-			if 0 != timeout {
-				c.conn.SetReadDeadline(time.Now().Add(timeout))
-			}
-
-			_, err = c.in.ReadFrom(c.conn)
-
-			if err != nil {
-				c.in.Clear()
-				return nil, err
-			}
-
-			complete, msg, err = c.decoder.Decode(c.in)
+			complete, msg, err = c.readFromConn(timeout)
 		}
 
-		if nil != err || complete {
+		if nil != err {
+			c.in.Clear()
+			return nil, err
+		}
+
+		if complete {
 			break
 		}
 	}
 
-	c.in.Clear()
+	if c.in.Readable() == 0 {
+		c.in.Clear()
+	}
+
 	return msg, err
 }
 
@@ -250,6 +251,20 @@ func (c *connector) RemoteIP() string {
 	}
 
 	return strings.Split(addr, ":")[0]
+}
+
+func (c *connector) readFromConn(timeout time.Duration) (bool, interface{}, error) {
+	if 0 != timeout {
+		c.conn.SetReadDeadline(time.Now().Add(timeout))
+	}
+
+	_, err := c.in.ReadFrom(c.conn)
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	return c.decoder.Decode(c.in)
 }
 
 func (c *connector) writeRelease() {

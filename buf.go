@@ -172,7 +172,7 @@ func (b *ByteBuf) MarkN(n int) error {
 
 // MarkIndex mark a index
 func (b *ByteBuf) MarkIndex(index int) error {
-	if index >= b.Capacity() || index <= b.readerIndex {
+	if index > b.Capacity() || index <= b.readerIndex {
 		return io.ErrShortBuffer
 	}
 
