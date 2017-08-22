@@ -26,17 +26,17 @@ func (decoder *redisDecoder) Decode(in *goetty.ByteBuf) (bool, interface{}, erro
 	return true, cmd, nil
 }
 
-type redisRespDecoder struct {
+type redisReplyDecoder struct {
 }
 
-// NewRedisRespDecoder returns a redis protocol cmd response decoder
-func NewRedisRespDecoder() goetty.Decoder {
-	return &redisRespDecoder{}
+// NewRedisReplyDecoder returns a redis protocol cmd reply decoder
+func NewRedisReplyDecoder() goetty.Decoder {
+	return &redisReplyDecoder{}
 }
 
 // Decode decode
-func (decoder *redisRespDecoder) Decode(in *goetty.ByteBuf) (bool, interface{}, error) {
-	complete, cmd, err := readCommandResp(in)
+func (decoder *redisReplyDecoder) Decode(in *goetty.ByteBuf) (bool, interface{}, error) {
+	complete, cmd, err := readCommandReply(in)
 	if err != nil {
 		return true, nil, err
 	}

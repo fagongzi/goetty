@@ -16,7 +16,7 @@ func TestParserCommandRespForStatus(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	WriteStatus([]byte("OK"), buf)
 
-	checkStatusResp(buf, t, status)
+	checkStatusReply(buf, t, status)
 }
 
 func TestParserCommandRespForStatusNotComplete(t *testing.T) {
@@ -30,7 +30,7 @@ func TestParserCommandRespForStatusNotComplete(t *testing.T) {
 
 	buf.Write(Delims)
 
-	checkStatusResp(buf, t, status)
+	checkStatusReply(buf, t, status)
 }
 
 func TestParserCommandRespForError(t *testing.T) {
@@ -39,7 +39,7 @@ func TestParserCommandRespForError(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	WriteError([]byte(errInfo), buf)
 
-	checkErrorResp(buf, t, fmt.Sprintf(" %s", errInfo))
+	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
 }
 
 func TestParserCommandRespForErrorNotComplete(t *testing.T) {
@@ -52,7 +52,7 @@ func TestParserCommandRespForErrorNotComplete(t *testing.T) {
 	checkNotComplete(buf, t)
 
 	buf.Write(Delims)
-	checkErrorResp(buf, t, fmt.Sprintf(" %s", errInfo))
+	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
 }
 
 func TestParserCommandRespForInteger(t *testing.T) {
@@ -63,7 +63,7 @@ func TestParserCommandRespForInteger(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	WriteInteger(valueNumber, buf)
 
-	checkIntegerResp(buf, t, value)
+	checkIntegerReply(buf, t, value)
 }
 
 func TestParserCommandRespForNotComplete(t *testing.T) {
@@ -77,17 +77,17 @@ func TestParserCommandRespForNotComplete(t *testing.T) {
 	checkNotComplete(buf, t)
 
 	buf.Write(Delims)
-	checkIntegerResp(buf, t, value)
+	checkIntegerReply(buf, t, value)
 }
 
 func TestParserCommandRespForBulk(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	WriteBulk(nil, buf)
-	checkBulkNilResp(buf, t)
+	checkBulkNilReply(buf, t)
 
 	data := "this is a bulk data"
 	WriteBulk([]byte(data), buf)
-	checkBulkResp(buf, t, data)
+	checkBulkReply(buf, t, data)
 }
 
 func TestParserCommandRespForBulkNotComplete(t *testing.T) {
@@ -97,7 +97,7 @@ func TestParserCommandRespForBulkNotComplete(t *testing.T) {
 	checkNotComplete(buf, t)
 
 	buf.Write(Delims)
-	checkBulkNilResp(buf, t)
+	checkBulkNilReply(buf, t)
 
 	data := "this is a bulk data"
 	buf.WriteByte('$')
@@ -108,7 +108,7 @@ func TestParserCommandRespForBulkNotComplete(t *testing.T) {
 	checkNotComplete(buf, t)
 
 	buf.Write(Delims)
-	checkBulkResp(buf, t, data)
+	checkBulkReply(buf, t, data)
 }
 
 func TestParserCommandRespForArray(t *testing.T) {
@@ -122,7 +122,7 @@ func TestParserCommandRespForArray(t *testing.T) {
 	lst := []interface{}{status, errInfo, integer, bulk}
 	WriteArray(lst, buf)
 
-	checkArrayResp(buf, t, len(lst))
+	checkArrayReply(buf, t, len(lst))
 }
 
 func TestParserCommandRespForArrayNotComplete(t *testing.T) {
@@ -163,11 +163,11 @@ func TestParserCommandRespForArrayNotComplete(t *testing.T) {
 		}
 	}
 
-	checkArrayResp(buf, t, len(lst))
+	checkArrayReply(buf, t, len(lst))
 }
 
 func checkNotComplete(buf *goetty.ByteBuf, t *testing.T) {
-	complete, _, err := readCommandResp(buf)
+	complete, _, err := readCommandReply(buf)
 	if err != nil {
 		t.Failed()
 	}
@@ -177,8 +177,8 @@ func checkNotComplete(buf *goetty.ByteBuf, t *testing.T) {
 	}
 }
 
-func checkErrorResp(buf *goetty.ByteBuf, t *testing.T, info string) {
-	complete, value, err := readCommandResp(buf)
+func checkErrorReply(buf *goetty.ByteBuf, t *testing.T, info string) {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}
@@ -198,8 +198,8 @@ func checkErrorResp(buf *goetty.ByteBuf, t *testing.T, info string) {
 	}
 }
 
-func checkStatusResp(buf *goetty.ByteBuf, t *testing.T, info string) {
-	complete, value, err := readCommandResp(buf)
+func checkStatusReply(buf *goetty.ByteBuf, t *testing.T, info string) {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}
@@ -218,8 +218,8 @@ func checkStatusResp(buf *goetty.ByteBuf, t *testing.T, info string) {
 	}
 }
 
-func checkIntegerResp(buf *goetty.ByteBuf, t *testing.T, num string) {
-	complete, value, err := readCommandResp(buf)
+func checkIntegerReply(buf *goetty.ByteBuf, t *testing.T, num string) {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,8 +238,8 @@ func checkIntegerResp(buf *goetty.ByteBuf, t *testing.T, num string) {
 	}
 }
 
-func checkArrayResp(buf *goetty.ByteBuf, t *testing.T, num int) []interface{} {
-	complete, value, err := readCommandResp(buf)
+func checkArrayReply(buf *goetty.ByteBuf, t *testing.T, num int) []interface{} {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}
@@ -260,8 +260,8 @@ func checkArrayResp(buf *goetty.ByteBuf, t *testing.T, num int) []interface{} {
 	return rsps
 }
 
-func checkBulkNilResp(buf *goetty.ByteBuf, t *testing.T) {
-	complete, value, err := readCommandResp(buf)
+func checkBulkNilReply(buf *goetty.ByteBuf, t *testing.T) {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}
@@ -276,8 +276,8 @@ func checkBulkNilResp(buf *goetty.ByteBuf, t *testing.T) {
 	}
 }
 
-func checkBulkResp(buf *goetty.ByteBuf, t *testing.T, data string) {
-	complete, value, err := readCommandResp(buf)
+func checkBulkReply(buf *goetty.ByteBuf, t *testing.T, data string) {
+	complete, value, err := readCommandReply(buf)
 	if err != nil {
 		t.Error(err)
 	}

@@ -103,7 +103,7 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 	}
 }
 
-func readCommandResp(in *goetty.ByteBuf) (bool, interface{}, error) {
+func readCommandReply(in *goetty.ByteBuf) (bool, interface{}, error) {
 	for {
 		// remember the begin read index,
 		// if we found has no enough data, we will resume this read index,
@@ -165,7 +165,7 @@ func readCommandResp(in *goetty.ByteBuf) (bool, interface{}, error) {
 
 			r := make([]interface{}, size)
 			for i := range r {
-				complete, value, err := readCommandResp(in)
+				complete, value, err := readCommandReply(in)
 				if err != nil {
 					return false, nil, err
 				}
