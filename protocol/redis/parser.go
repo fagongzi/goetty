@@ -1,15 +1,10 @@
 package redis
 
 import (
-	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/fagongzi/goetty"
-)
-
-var (
-	// ErrIllegalPacket parse err
-	ErrIllegalPacket = errors.New("illegal packet data")
 )
 
 const (
@@ -49,7 +44,7 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 
 		// 1. Read ( *<number of arguments> CR LF )
 		if c != CMDBegin {
-			return false, nil, ErrIllegalPacket
+			return false, nil, fmt.Errorf("illegal cmd char %d", c)
 		}
 
 		// 2. Read number of arguments
@@ -65,6 +60,11 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 
 		// 3. Read args
 		for i := 0; i < argsCount; i++ {
+			if 0 == in.Readable() {
+				in.SetReaderIndex(backupReaderIndex)
+				return false, nil, nil
+			}
+
 			// 3.1 Read ( $<number of bytes of argument 1> CR LF )
 			c, err := in.ReadByte()
 			if err != nil {
@@ -72,9 +72,8 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 			}
 
 			// 3.2 Read ( *<number of arguments> CR LF )
-
 			if c != ARGBegin {
-				return false, nil, ErrIllegalPacket
+				return false, nil, fmt.Errorf("illegal arg char %d", c)
 			}
 
 			count, argBytesCount, err := readStringInt(in)
@@ -84,7 +83,7 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 			} else if err != nil {
 				return false, nil, err
 			} else if count < 2 {
-				return false, nil, ErrIllegalPacket
+				return false, nil, fmt.Errorf("illegal arg count: %d", count)
 			}
 
 			// 3.3  Read ( <argument data> CR LF )
@@ -114,7 +113,7 @@ func readCommandReply(in *goetty.ByteBuf) (bool, interface{}, error) {
 			in.SetReaderIndex(backupReaderIndex)
 			return false, nil, nil
 		} else if err != nil {
-			return false, nil, ErrIllegalPacket
+			return false, nil, err
 		}
 
 		line = line[:cnt-2]
@@ -180,7 +179,7 @@ func readCommandReply(in *goetty.ByteBuf) (bool, interface{}, error) {
 
 			return true, r, nil
 		default:
-			return false, nil, ErrIllegalPacket
+			return false, nil, fmt.Errorf("illegal cmd reply char %c", line[0])
 		}
 	}
 }
@@ -214,7 +213,7 @@ func readLine(in *goetty.ByteBuf) (int, []byte, error) {
 				return in.ReadBytes(offset + 1)
 			}
 
-			return 0, nil, ErrIllegalPacket
+			return 0, nil, fmt.Errorf("illegal line end: %c", ch)
 		}
 		offset++
 	}

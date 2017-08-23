@@ -10,7 +10,7 @@ import (
 	"github.com/fagongzi/goetty"
 )
 
-func TestParserCommandRespForStatus(t *testing.T) {
+func TestParserCommandReplyForStatus(t *testing.T) {
 	status := "OK"
 
 	buf := goetty.NewByteBuf(1024)
@@ -19,7 +19,7 @@ func TestParserCommandRespForStatus(t *testing.T) {
 	checkStatusReply(buf, t, status)
 }
 
-func TestParserCommandRespForStatusNotComplete(t *testing.T) {
+func TestParserCommandReplyForStatusNotComplete(t *testing.T) {
 	status := "OK"
 
 	buf := goetty.NewByteBuf(1024)
@@ -33,7 +33,7 @@ func TestParserCommandRespForStatusNotComplete(t *testing.T) {
 	checkStatusReply(buf, t, status)
 }
 
-func TestParserCommandRespForError(t *testing.T) {
+func TestParserCommandReplyForError(t *testing.T) {
 	errInfo := "this is a error"
 
 	buf := goetty.NewByteBuf(1024)
@@ -42,7 +42,7 @@ func TestParserCommandRespForError(t *testing.T) {
 	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
 }
 
-func TestParserCommandRespForErrorNotComplete(t *testing.T) {
+func TestParserCommandReplyForErrorNotComplete(t *testing.T) {
 	errInfo := "this is a error"
 
 	buf := goetty.NewByteBuf(1024)
@@ -55,7 +55,7 @@ func TestParserCommandRespForErrorNotComplete(t *testing.T) {
 	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
 }
 
-func TestParserCommandRespForInteger(t *testing.T) {
+func TestParserCommandReplyForInteger(t *testing.T) {
 	var valueNumber int64
 	valueNumber = 100
 	value := fmt.Sprintf("%d", valueNumber)
@@ -66,7 +66,7 @@ func TestParserCommandRespForInteger(t *testing.T) {
 	checkIntegerReply(buf, t, value)
 }
 
-func TestParserCommandRespForNotComplete(t *testing.T) {
+func TestParserCommandReplyForNotComplete(t *testing.T) {
 	var valueNumber int64
 	valueNumber = 100
 	value := fmt.Sprintf("%d", valueNumber)
@@ -80,7 +80,7 @@ func TestParserCommandRespForNotComplete(t *testing.T) {
 	checkIntegerReply(buf, t, value)
 }
 
-func TestParserCommandRespForBulk(t *testing.T) {
+func TestParserCommandReplyForBulk(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	WriteBulk(nil, buf)
 	checkBulkNilReply(buf, t)
@@ -90,7 +90,7 @@ func TestParserCommandRespForBulk(t *testing.T) {
 	checkBulkReply(buf, t, data)
 }
 
-func TestParserCommandRespForBulkNotComplete(t *testing.T) {
+func TestParserCommandReplyForBulkNotComplete(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	buf.WriteByte('$')
 	buf.Write(NullBulk)
@@ -111,7 +111,7 @@ func TestParserCommandRespForBulkNotComplete(t *testing.T) {
 	checkBulkReply(buf, t, data)
 }
 
-func TestParserCommandRespForArray(t *testing.T) {
+func TestParserCommandReplyForArray(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	status := "OK"
 	errInfo := errors.New("this is a error")
@@ -125,7 +125,7 @@ func TestParserCommandRespForArray(t *testing.T) {
 	checkArrayReply(buf, t, len(lst))
 }
 
-func TestParserCommandRespForArrayNotComplete(t *testing.T) {
+func TestParserCommandReplyForArrayNotComplete(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	status := "OK"
 	errInfo := errors.New("this is a error")

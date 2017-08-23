@@ -25,6 +25,7 @@ type IOSession interface {
 	Read() (interface{}, error)
 	ReadTimeout(timeout time.Duration) (interface{}, error)
 	Write(msg interface{}) error
+	InBuf() *ByteBuf
 	OutBuf() *ByteBuf
 	WriteOutBuf() error
 	SetAttr(key string, value interface{})
@@ -117,6 +118,11 @@ func (s *clientIOSession) Write(msg interface{}) error {
 	}
 
 	return s.WriteOutBuf()
+}
+
+// InBuf returns internal bytebuf that used for read from server
+func (s *clientIOSession) InBuf() *ByteBuf {
+	return s.in
 }
 
 // OutBuf returns internal bytebuf that used for write to client

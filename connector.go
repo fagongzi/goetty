@@ -62,6 +62,11 @@ func NewConnectorSize(cnf *Conf, decoder Decoder, encoder Encoder, readBufSize, 
 	}
 }
 
+// InBuf returns internal bytebuf that used for read from client
+func (c *connector) InBuf() *ByteBuf {
+	return c.in
+}
+
 // OutBuf returns internal bytebuf that used for write to client
 func (c *connector) OutBuf() *ByteBuf {
 	return c.out
