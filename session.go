@@ -42,8 +42,9 @@ type clientIOSession struct {
 
 	conn   net.Conn
 	closed int32
-	in     *ByteBuf
-	out    *ByteBuf
+
+	in  *ByteBuf
+	out *ByteBuf
 
 	attrs map[string]interface{}
 }
@@ -134,7 +135,15 @@ func (s *clientIOSession) OutBuf() *ByteBuf {
 func (s *clientIOSession) WriteOutBuf() error {
 	_, bytes, _ := s.out.ReadAll()
 
-	n, err := s.conn.Write(bytes)
+	var n int
+	var err error
+	s.RLock()
+	if s.IsConnected() {
+		n, err = s.conn.Write(bytes)
+	} else {
+		err = ErrIllegalState
+	}
+	s.RUnlock()
 
 	if err != nil {
 		s.out.Clear()
@@ -153,13 +162,14 @@ func (s *clientIOSession) WriteOutBuf() error {
 // Close close
 func (s *clientIOSession) Close() error {
 	s.Lock()
+	s.closed = 1
+
 	if s.conn == nil {
 		return nil
 	}
 
 	err := s.conn.Close()
 	s.conn = nil
-	atomic.StoreInt32(&s.closed, 1)
 	s.Unlock()
 
 	return err

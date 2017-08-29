@@ -295,3 +295,13 @@ func checkBulkReply(buf *goetty.ByteBuf, t *testing.T, data string) {
 		t.Error("value mis match")
 	}
 }
+
+func TestReadLine(t *testing.T) {
+	buf := goetty.NewByteBuf(1024)
+	buf.Write([]byte("*3\r\n"))
+
+	n, _, err := readLine(buf)
+	if err != nil {
+		t.Error("read line error")
+	}
+}

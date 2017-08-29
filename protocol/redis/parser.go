@@ -213,7 +213,7 @@ func readLine(in *goetty.ByteBuf) (int, []byte, error) {
 				return in.ReadBytes(offset + 1)
 			}
 
-			return 0, nil, fmt.Errorf("illegal line end: %c", ch)
+			return 0, nil, fmt.Errorf("illegal line end: %d", ch)
 		}
 		offset++
 	}
