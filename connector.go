@@ -79,16 +79,16 @@ func (c *connector) WriteOutBuf() error {
 	n, err := c.conn.Write(bytes)
 
 	if err != nil {
-		c.out.Clear()
+		c.writeRelease()
 		return err
 	}
 
 	if n != len(bytes) {
-		c.out.Clear()
+		c.writeRelease()
 		return ErrWrite
 	}
 
-	c.out.Clear()
+	c.writeRelease()
 	return nil
 }
 
