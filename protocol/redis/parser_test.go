@@ -300,7 +300,7 @@ func TestReadLine(t *testing.T) {
 	buf := goetty.NewByteBuf(1024)
 	buf.Write([]byte("*3\r\n"))
 
-	n, _, err := readLine(buf)
+	_, _, err := readLine(buf)
 	if err != nil {
 		t.Error("read line error")
 	}

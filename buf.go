@@ -1,7 +1,6 @@
 package goetty
 
 import (
-	"bytes"
 	"errors"
 	"io"
 )
@@ -39,20 +38,23 @@ func Byte2Int64(data []byte) int64 {
 	return int64((int64(data[0])&0xff)<<56 | (int64(data[1])&0xff)<<48 | (int64(data[2])&0xff)<<40 | (int64(data[3])&0xff)<<32 | (int64(data[4])&0xff)<<24 | (int64(data[5])&0xff)<<16 | (int64(data[6])&0xff)<<8 | (int64(data[7]) & 0xff))
 }
 
-// Int2Bytes int value to bytes array using big order
-func Int2Bytes(v int) []byte {
-	ret := make([]byte, 4)
+// Int2BytesTo int value to bytes array using big order
+func Int2BytesTo(v int, ret []byte) {
 	ret[0] = byte(v >> 24)
 	ret[1] = byte(v >> 16)
 	ret[2] = byte(v >> 8)
 	ret[3] = byte(v)
+}
+
+// Int2Bytes int value to bytes array using big order
+func Int2Bytes(v int) []byte {
+	ret := make([]byte, 4)
+	Int2BytesTo(v, ret)
 	return ret
 }
 
-// Int64ToBytes int64 value to bytes array using big order
-func Int64ToBytes(v int64) []byte {
-	ret := make([]byte, 8)
-
+// Int64ToBytesTo int64 value to bytes array using big order
+func Int64ToBytesTo(v int64, ret []byte) {
 	ret[0] = byte(v >> 56)
 	ret[1] = byte(v >> 48)
 	ret[2] = byte(v >> 40)
@@ -61,7 +63,12 @@ func Int64ToBytes(v int64) []byte {
 	ret[5] = byte(v >> 16)
 	ret[6] = byte(v >> 8)
 	ret[7] = byte(v)
+}
 
+// Int64ToBytes int64 value to bytes array using big order
+func Int64ToBytes(v int64) []byte {
+	ret := make([]byte, 8)
+	Int64ToBytesTo(v, ret)
 	return ret
 }
 
@@ -154,6 +161,21 @@ func (b *ByteBuf) GetWriteIndex() int {
 	return b.writerIndex
 }
 
+// GetMarkerIndex returns markerIndex
+func (b *ByteBuf) GetMarkerIndex() int {
+	return b.markedIndex
+}
+
+// GetMarkedRemind returns size in [readerIndex, markedIndex)
+func (b *ByteBuf) GetMarkedRemind() int {
+	return b.markedIndex - b.readerIndex
+}
+
+// GetMarkedRemindData returns data in [readerIndex, markedIndex)
+func (b *ByteBuf) GetMarkedRemindData() []byte {
+	return b.buf[b.readerIndex:b.markedIndex]
+}
+
 // SetWriterIndex set the write index
 func (b *ByteBuf) SetWriterIndex(newWriterIndex int) error {
 	if newWriterIndex < b.readerIndex || newWriterIndex > b.Capacity() {
@@ -207,7 +229,18 @@ func (b *ByteBuf) ReadByte() (byte, error) {
 	return v, nil
 }
 
+// ReadRawBytes read bytes from buf without mem copy
+// Note. If used complete, you must call b.Skip(n) to reset reader index
+func (b *ByteBuf) ReadRawBytes(n int) (int, []byte, error) {
+	if n > b.Readable() {
+		return 0, nil, nil
+	}
+
+	return n, b.buf[b.readerIndex : b.readerIndex+n], nil
+}
+
 // ReadBytes read bytes from buf
+// It's will copy the data to a new byte arrary
 // return readedBytesCount, byte array, error
 func (b *ByteBuf) ReadBytes(n int) (int, []byte, error) {
 	data := make([]byte, n)
@@ -221,9 +254,14 @@ func (b *ByteBuf) ReadAll() (int, []byte, error) {
 	return b.ReadBytes(b.Readable())
 }
 
-// ReadMarkedBytes read data from buf in the range [markedIndex, readerIndex)
+// ReadMarkedBytes read data from buf in the range [readerIndex, markedIndex)
 func (b *ByteBuf) ReadMarkedBytes() (int, []byte, error) {
-	return b.ReadBytes(b.markedIndex - b.readerIndex)
+	return b.ReadBytes(b.GetMarkedRemind())
+}
+
+// MarkedBytesReaded reset reader index
+func (b *ByteBuf) MarkedBytesReaded()  {
+	b.readerIndex += b.GetMarkedRemind()
 }
 
 // Read read bytes
@@ -245,7 +283,7 @@ func (b *ByteBuf) PeekInt(offset int) (int, error) {
 	}
 
 	start := b.readerIndex + offset
-	return ReadInt(bytes.NewReader(b.buf[start : start+4]))
+	return Byte2Int(b.buf[start : start+4]), nil
 }
 
 // PeekByte get byte value from buf based on currently read index, after read, read index not modifed
@@ -264,7 +302,7 @@ func (b *ByteBuf) PeekN(offset int, n int) ([]byte, error) {
 	}
 
 	start := b.readerIndex + offset
-	return ReadN(bytes.NewReader(b.buf[start:start+n]), n)
+	return b.buf[start : start+n], nil
 }
 
 // ReadFrom reads data from r until EOF and appends it to the buffer, growing
@@ -273,7 +311,7 @@ func (b *ByteBuf) PeekN(offset int, n int) ([]byte, error) {
 // buffer becomes too large, ReadFrom will panic with ErrTooLarge.
 func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 	for {
-		b.expansion(b.scale)
+		b.Expansion(b.scale)
 
 		if r == nil {
 			return 0, io.EOF
@@ -309,34 +347,41 @@ func (b *ByteBuf) Writeable() int {
 // needed. The return value n is the length of p; err is always nil. If the
 // buffer becomes too large, Write will panic with ErrTooLarge.
 func (b *ByteBuf) Write(p []byte) (n int, err error) {
-	b.expansion(len(p))
-	m, err := b.ReadFrom(bytes.NewBuffer(p))
-	return int(m), err
+	n = len(p)
+	b.Expansion(n)
+	copy(b.buf[b.writerIndex:], p)
+	b.writerIndex += n
+	return n, nil
 }
 
 // WriteInt write int value to buf using big order
 // return write bytes count, error
 func (b *ByteBuf) WriteInt(v int) (n int, err error) {
-	b.expansion(4)
-	return b.Write(Int2Bytes(v))
+	b.Expansion(4)
+	Int2BytesTo(v, b.buf[b.writerIndex:])
+	b.writerIndex += 4
+	return 4, nil
 }
 
 // WriteInt64 write int64 value to buf using big order
 // return write bytes count, error
 func (b *ByteBuf) WriteInt64(v int64) (n int, err error) {
-	b.expansion(8)
-	return b.Write(Int64ToBytes(v))
+	b.Expansion(8)
+	Int64ToBytesTo(v, b.buf[b.writerIndex:])
+	b.writerIndex += 8
+	return 8, nil
 }
 
 // WriteByte write a byte value to buf
-// return write bytes count, error
 func (b *ByteBuf) WriteByte(v byte) error {
-	b.expansion(1)
-	_, err := b.Write([]byte{v})
-	return err
+	b.Expansion(1)
+	b.buf[b.writerIndex] = v
+	b.writerIndex++
+	return nil
 }
 
-func (b *ByteBuf) expansion(n int) {
+// Expansion expansion buf size
+func (b *ByteBuf) Expansion(n int) {
 	ex := b.scale
 
 	if n > b.scale {
