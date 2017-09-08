@@ -170,6 +170,8 @@ func (s *clientIOSession) Close() error {
 
 	err := s.conn.Close()
 	s.conn = nil
+	s.in.Release()
+	s.out.Release()
 	s.Unlock()
 
 	return err

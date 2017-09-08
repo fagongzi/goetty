@@ -72,18 +72,6 @@ func Int64ToBytes(v int64) []byte {
 	return ret
 }
 
-// makeSlice allocates a slice of size n. If the allocation fails, it panics
-// with ErrTooLarge.
-func makeSlice(n int) []byte {
-	// If the make fails, give a known error.
-	defer func() {
-		if recover() != nil {
-			panic(ErrTooLarge)
-		}
-	}()
-	return make([]byte, n)
-}
-
 // ByteBuf a buf with byte arrays
 //
 // | discardable bytes  |   readable bytes   |   writeable bytes  |
@@ -92,6 +80,7 @@ func makeSlice(n int) []byte {
 // 0      <=       readerIndex    <=     writerIndex    <=     capacity
 //
 type ByteBuf struct {
+	pool        Pool
 	buf         []byte // buf data, auto +/- size
 	readerIndex int    //
 	writerIndex int    //
@@ -116,11 +105,17 @@ func NewByteBuf(capacity int) *ByteBuf {
 
 // NewByteBufSize create a new bytebuf using scale size
 func NewByteBufSize(capacity int, scale int) *ByteBuf {
+	return NewByteBufSizeAndPool(capacity, DefaultScaleMinSize, defaultPool)
+}
+
+// NewByteBufSizeAndPool create a new bytebuf using scale size and a mem pool
+func NewByteBufSizeAndPool(capacity int, scale int, pool Pool) *ByteBuf {
 	return &ByteBuf{
-		buf:         make([]byte, capacity),
+		buf:         pool.Alloc(capacity),
 		readerIndex: 0,
 		writerIndex: 0,
 		scale:       scale,
+		pool:        pool,
 	}
 }
 
@@ -133,6 +128,11 @@ func (b *ByteBuf) RawBuf() []byte {
 func (b *ByteBuf) Clear() {
 	b.readerIndex = 0
 	b.writerIndex = 0
+}
+
+// Release release buf
+func (b *ByteBuf) Release() {
+	b.pool.Free(b.buf)
 }
 
 // Capacity get the capacity
@@ -260,7 +260,7 @@ func (b *ByteBuf) ReadMarkedBytes() (int, []byte, error) {
 }
 
 // MarkedBytesReaded reset reader index
-func (b *ByteBuf) MarkedBytesReaded()  {
+func (b *ByteBuf) MarkedBytesReaded() {
 	b.readerIndex += b.GetMarkedRemind()
 }
 
@@ -389,11 +389,12 @@ func (b *ByteBuf) Expansion(n int) {
 	}
 
 	if free := b.Writeable(); free < ex {
-		newBuf := makeSlice(cap(b.buf) + ex)
+		newBuf := b.pool.Alloc(cap(b.buf) + ex)
 		offset := b.writerIndex - b.readerIndex
 		copy(newBuf, b.buf[b.readerIndex:])
 		b.readerIndex = 0
 		b.writerIndex = offset
+		b.pool.Free(b.buf)
 		b.buf = newBuf
 	}
 }
