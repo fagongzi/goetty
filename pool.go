@@ -8,10 +8,28 @@ const (
 )
 
 var (
-	defaultPool = NewAtomPool(
-		256,  // 256 byte
-		8*MB, // 1MB
-		2,
-		64*MB, // 64MB per page
-	)
+	mp          Pool
+	defaultMin  = 256
+	defaultMax  = 8 * MB
+	defaultPage = 64 * MB
 )
+
+// UseDefaultMemPool use the default mem pool
+func UseDefaultMemPool() {
+	mp = NewAtomPool(
+		defaultMin,
+		defaultMax,
+		2,
+		defaultPage,
+	)
+}
+
+// UseMemPool use the custom mem pool
+func UseMemPool(min, max, page int) {
+	mp = NewAtomPool(
+		min,
+		max,
+		2,
+		page,
+	)
+}

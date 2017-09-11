@@ -105,7 +105,7 @@ func NewByteBuf(capacity int) *ByteBuf {
 
 // NewByteBufSize create a new bytebuf using scale size
 func NewByteBufSize(capacity int, scale int) *ByteBuf {
-	return NewByteBufSizeAndPool(capacity, DefaultScaleMinSize, defaultPool)
+	return NewByteBufSizeAndPool(capacity, DefaultScaleMinSize, mp)
 }
 
 // NewByteBufSizeAndPool create a new bytebuf using scale size and a mem pool
