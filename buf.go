@@ -80,41 +80,29 @@ func Int64ToBytes(v int64) []byte {
 // 0      <=       readerIndex    <=     writerIndex    <=     capacity
 //
 type ByteBuf struct {
+	capacity    int
 	pool        Pool
 	buf         []byte // buf data, auto +/- size
 	readerIndex int    //
 	writerIndex int    //
 	markedIndex int
-	scale       int // scale min size
 }
 
 // ErrTooLarge too larger error
 var ErrTooLarge = errors.New("goetty.ByteBuf: too large")
 
-const (
-	// DefaultScaleMinSize default size for scale byte buf size
-	DefaultScaleMinSize = 512
-	// GC gc
-	GC = 1024
-)
-
 // NewByteBuf create a new bytebuf
 func NewByteBuf(capacity int) *ByteBuf {
-	return NewByteBufSize(capacity, DefaultScaleMinSize)
+	return NewByteBufPool(capacity, getDefaultMP())
 }
 
-// NewByteBufSize create a new bytebuf using scale size
-func NewByteBufSize(capacity int, scale int) *ByteBuf {
-	return NewByteBufSizeAndPool(capacity, DefaultScaleMinSize, getDefaultMP())
-}
-
-// NewByteBufSizeAndPool create a new bytebuf using scale size and a mem pool
-func NewByteBufSizeAndPool(capacity int, scale int, pool Pool) *ByteBuf {
+// NewByteBufPool create a new bytebuf using a mem pool
+func NewByteBufPool(capacity int, pool Pool) *ByteBuf {
 	return &ByteBuf{
+		capacity:    capacity,
 		buf:         pool.Alloc(capacity),
 		readerIndex: 0,
 		writerIndex: 0,
-		scale:       scale,
 		pool:        pool,
 	}
 }
@@ -133,6 +121,12 @@ func (b *ByteBuf) Clear() {
 // Release release buf
 func (b *ByteBuf) Release() {
 	b.pool.Free(b.buf)
+	b.buf = nil
+}
+
+// Resume resume the buf
+func (b *ByteBuf) Resume(capacity int) {
+	b.buf = b.pool.Alloc(b.capacity)
 }
 
 // Capacity get the capacity
@@ -262,7 +256,7 @@ func (b *ByteBuf) ReadMarkedBytes() (int, []byte, error) {
 
 // MarkedBytesReaded reset reader index
 func (b *ByteBuf) MarkedBytesReaded() {
-	b.readerIndex += b.GetMarkedRemind()
+	b.readerIndex = b.markedIndex
 }
 
 // Read read bytes
@@ -312,7 +306,7 @@ func (b *ByteBuf) PeekN(offset int, n int) ([]byte, error) {
 // buffer becomes too large, ReadFrom will panic with ErrTooLarge.
 func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 	for {
-		b.Expansion(b.scale)
+		b.Expansion(b.Capacity())
 
 		if r == nil {
 			return 0, io.EOF
@@ -383,14 +377,8 @@ func (b *ByteBuf) WriteByte(v byte) error {
 
 // Expansion expansion buf size
 func (b *ByteBuf) Expansion(n int) {
-	ex := b.scale
-
-	if n > b.scale {
-		ex = n
-	}
-
-	if free := b.Writeable(); free < ex {
-		newBuf := b.pool.Alloc(b.Capacity() + ex)
+	if free := b.Writeable(); free < n {
+		newBuf := b.pool.Alloc(b.Capacity() + n)
 		offset := b.writerIndex - b.readerIndex
 		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
 		b.readerIndex = 0

@@ -12,11 +12,10 @@ const (
 )
 
 var (
-	lock sync.Mutex
-	mp          Pool
-	defaultMin  = 256
-	defaultMax  = 8 * MB
-	defaultPage = 64 * MB
+	lock       sync.Mutex
+	mp         Pool
+	defaultMin = 256
+	defaultMax = 8 * MB
 )
 
 func getDefaultMP() Pool {
@@ -30,20 +29,18 @@ func getDefaultMP() Pool {
 }
 
 func useDefaultMemPool() {
-	mp = NewAtomPool(
+	mp = NewSyncPool(
 		defaultMin,
 		defaultMax,
 		2,
-		defaultPage,
 	)
 }
 
 // UseMemPool use the custom mem pool
-func UseMemPool(min, max, page int) {
-	mp = NewAtomPool(
+func UseMemPool(min, max int) {
+	mp = NewSyncPool(
 		min,
 		max,
 		2,
-		page,
 	)
 }

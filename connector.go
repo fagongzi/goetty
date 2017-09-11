@@ -207,35 +207,13 @@ func (c *connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
 
 // Write write a msg to server
 func (c *connector) Write(msg interface{}) error {
-	if c.IsConnected() {
-		err := c.encoder.Encode(msg, c.out)
+	err := c.encoder.Encode(msg, c.out)
 
-		if err != nil {
-			c.writeRelease()
-			return err
-		}
-
-		_, bytes, _ := c.out.ReadAll()
-
-		n, err := c.conn.Write(bytes)
-
-		if err != nil {
-			c.writeRelease()
-			return err
-		}
-
-		c.cancelWriteTimeout()
-
-		if n != len(bytes) {
-			c.writeRelease()
-			return ErrWrite
-		}
-
-		c.writeRelease()
-		return nil
+	if err != nil {
+		return err
 	}
 
-	return ErrIllegalState
+	return c.WriteOutBuf()
 }
 
 // RemoteAddr get remote address
