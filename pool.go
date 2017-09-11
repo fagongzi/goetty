@@ -1,5 +1,9 @@
 package goetty
 
+import (
+	"sync"
+)
+
 const (
 	// KB kb
 	KB = 1024
@@ -8,14 +12,24 @@ const (
 )
 
 var (
+	lock sync.Mutex
 	mp          Pool
 	defaultMin  = 256
 	defaultMax  = 8 * MB
 	defaultPage = 64 * MB
 )
 
-// UseDefaultMemPool use the default mem pool
-func UseDefaultMemPool() {
+func getDefaultMP() Pool {
+	lock.Lock()
+	if mp == nil {
+		useDefaultMemPool()
+	}
+	lock.Unlock()
+
+	return mp
+}
+
+func useDefaultMemPool() {
 	mp = NewAtomPool(
 		defaultMin,
 		defaultMax,
