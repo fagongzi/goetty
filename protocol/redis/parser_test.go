@@ -14,8 +14,7 @@ func TestParserCommandReplyForStatus(t *testing.T) {
 	status := "OK"
 
 	buf := goetty.NewByteBuf(1024)
-	WriteStatus([]byte("OK"), buf)
-
+	WriteStatus([]byte(status), buf)
 	checkStatusReply(buf, t, status)
 }
 
@@ -192,7 +191,6 @@ func checkErrorReply(buf *goetty.ByteBuf, t *testing.T, info string) {
 		t.Error("type mis match")
 	}
 
-	fmt.Printf("%s\n", []byte(rsp))
 	if string(rsp) != info {
 		t.Error("value mis match")
 	}

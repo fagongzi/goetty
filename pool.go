@@ -1,10 +1,17 @@
 package goetty
 
+const (
+	// KB kb
+	KB = 1024
+	// MB mb
+	MB = 1024 * 1024
+)
+
 var (
 	defaultPool = NewAtomPool(
-		128,     //128 byte
-		64*1024, // 64kb
+		256,  // 256 byte
+		8*MB, // 1MB
 		2,
-		1024*1024, // 1MB per page
+		64*MB, // 64MB per page
 	)
 )

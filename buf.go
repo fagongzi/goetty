@@ -137,7 +137,7 @@ func (b *ByteBuf) Release() {
 
 // Capacity get the capacity
 func (b *ByteBuf) Capacity() int {
-	return cap(b.buf)
+	return len(b.buf) // use len to avoid slice scale
 }
 
 // SetReaderIndex set the read index
@@ -249,6 +249,7 @@ func (b *ByteBuf) ReadBytes(n int) (int, []byte, error) {
 }
 
 // ReadAll read all data from buf
+// It's will copy the data to a new byte arrary
 // return readedBytesCount, byte array, error
 func (b *ByteBuf) ReadAll() (int, []byte, error) {
 	return b.ReadBytes(b.Readable())
@@ -358,7 +359,7 @@ func (b *ByteBuf) Write(p []byte) (n int, err error) {
 // return write bytes count, error
 func (b *ByteBuf) WriteInt(v int) (n int, err error) {
 	b.Expansion(4)
-	Int2BytesTo(v, b.buf[b.writerIndex:])
+	Int2BytesTo(v, b.buf[b.writerIndex:b.writerIndex+4])
 	b.writerIndex += 4
 	return 4, nil
 }
@@ -367,7 +368,7 @@ func (b *ByteBuf) WriteInt(v int) (n int, err error) {
 // return write bytes count, error
 func (b *ByteBuf) WriteInt64(v int64) (n int, err error) {
 	b.Expansion(8)
-	Int64ToBytesTo(v, b.buf[b.writerIndex:])
+	Int64ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+8])
 	b.writerIndex += 8
 	return 8, nil
 }
@@ -389,9 +390,9 @@ func (b *ByteBuf) Expansion(n int) {
 	}
 
 	if free := b.Writeable(); free < ex {
-		newBuf := b.pool.Alloc(cap(b.buf) + ex)
+		newBuf := b.pool.Alloc(b.Capacity() + ex)
 		offset := b.writerIndex - b.readerIndex
-		copy(newBuf, b.buf[b.readerIndex:])
+		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
 		b.readerIndex = 0
 		b.writerIndex = offset
 		b.pool.Free(b.buf)

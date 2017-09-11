@@ -50,6 +50,7 @@ func NewAtomPool(minSize, maxSize, factor, pageSize int) *AtomPool {
 		}
 		pool.classes = append(pool.classes, c)
 	}
+
 	return pool
 }
 
@@ -66,6 +67,7 @@ func (pool *AtomPool) Alloc(size int) []byte {
 			}
 		}
 	}
+
 	return make([]byte, size)
 }
 

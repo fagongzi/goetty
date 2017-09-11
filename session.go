@@ -133,13 +133,13 @@ func (s *clientIOSession) OutBuf() *ByteBuf {
 
 // WriteOutBuf writes bytes that in the internal bytebuf
 func (s *clientIOSession) WriteOutBuf() error {
-	_, bytes, _ := s.out.ReadAll()
+	buf := s.out
 
 	var n int
 	var err error
 	s.RLock()
 	if s.IsConnected() {
-		n, err = s.conn.Write(bytes)
+		n, err = s.conn.Write(buf.buf[buf.readerIndex:buf.writerIndex])
 	} else {
 		err = ErrIllegalState
 	}
@@ -150,7 +150,7 @@ func (s *clientIOSession) WriteOutBuf() error {
 		return err
 	}
 
-	if n != len(bytes) {
+	if n != buf.Readable() {
 		s.out.Clear()
 		return ErrWrite
 	}

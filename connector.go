@@ -74,16 +74,15 @@ func (c *connector) OutBuf() *ByteBuf {
 
 // WriteOutBuf writes bytes that in the internal bytebuf
 func (c *connector) WriteOutBuf() error {
-	_, bytes, _ := c.out.ReadAll()
-
-	n, err := c.conn.Write(bytes)
+	buf := c.out
+	n, err := c.conn.Write(buf.buf[buf.readerIndex:buf.writerIndex])
 
 	if err != nil {
 		c.writeRelease()
 		return err
 	}
 
-	if n != len(bytes) {
+	if n != buf.Readable() {
 		c.writeRelease()
 		return ErrWrite
 	}
