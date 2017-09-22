@@ -24,7 +24,9 @@ type IOSession interface {
 	Connect() (bool, error)
 	Read() (interface{}, error)
 	ReadTimeout(timeout time.Duration) (interface{}, error)
+	SetBatchSize(size uint64)
 	Write(msg interface{}) error
+	WriteBatch(msg interface{}) error
 	InBuf() *ByteBuf
 	OutBuf() *ByteBuf
 	WriteOutBuf() error
@@ -45,6 +47,9 @@ type clientIOSession struct {
 
 	in  *ByteBuf
 	out *ByteBuf
+
+	batchLimit uint64
+	batchCount uint64
 
 	attrs map[string]interface{}
 }
@@ -121,6 +126,26 @@ func (s *clientIOSession) Write(msg interface{}) error {
 	return s.WriteOutBuf()
 }
 
+func (s *clientIOSession) SetBatchSize(size uint64) {
+	s.batchLimit = size
+}
+
+func (s *clientIOSession) WriteBatch(msg interface{}) error {
+	err := s.svr.encoder.Encode(msg, s.out)
+
+	if err != nil {
+		return err
+	}
+
+	s.batchCount++
+
+	if s.batchCount%s.batchLimit == 0 {
+		return s.WriteOutBuf()
+	}
+
+	return nil
+}
+
 // InBuf returns internal bytebuf that used for read from server
 func (s *clientIOSession) InBuf() *ByteBuf {
 	return s.in
@@ -133,24 +158,15 @@ func (s *clientIOSession) OutBuf() *ByteBuf {
 
 // WriteOutBuf writes bytes that in the internal bytebuf
 func (s *clientIOSession) WriteOutBuf() error {
-	buf := s.out
-
-	var n int
-	var err error
-	s.RLock()
-	if s.IsConnected() {
-		n, err = s.conn.Write(buf.buf[buf.readerIndex:buf.writerIndex])
-	} else {
-		err = ErrIllegalState
-	}
-	s.RUnlock()
+	n, err := s.conn.Write(s.out.buf[s.out.readerIndex:s.out.writerIndex])
+	s.batchCount = 0
 
 	if err != nil {
 		s.out.Clear()
 		return err
 	}
 
-	if n != buf.Readable() {
+	if n != s.out.Readable() {
 		s.out.Clear()
 		return ErrWrite
 	}

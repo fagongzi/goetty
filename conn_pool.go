@@ -1,92 +1,156 @@
 package goetty
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
 
-// ConnectionPool the connect pool
-type ConnectionPool struct {
-	sync.RWMutex
+var (
+	// ErrClosed is the error resulting if the pool is closed via pool.Close().
+	ErrClosed = errors.New("pool is closed")
+)
 
-	conns           map[string]IOSession
-	createHandler   func(string) IOSession
-	readLoopHandler func(addr string, conn IOSession)
+// IOSessionPool interface describes a pool implementation. A pool should have maximum
+// capacity. An ideal pool is threadsafe and easy to use.
+type IOSessionPool interface {
+	// Get returns a new connection from the pool. Closing the connections puts
+	// it back to the Pool. Closing it when the pool is destroyed or full will
+	// be counted as an error.
+	Get() (IOSession, error)
+
+	// Put puts the connection back to the pool. If the pool is full or closed,
+	// conn is simply closed. A nil conn will be rejected.
+	Put(IOSession) error
+
+	// Close closes the pool and all its connections. After Close() the pool is
+	// no longer usable.
+	Close()
+
+	// Len returns the current number of connections of the pool.
+	Len() int
 }
 
-// NewConnectionPool returns a connector pool with a read loop and create connection handler function
-func NewConnectionPool(createHandler func(string) IOSession, readLoopHandler func(addr string, conn IOSession)) *ConnectionPool {
-	return &ConnectionPool{
-		conns:           make(map[string]IOSession),
-		createHandler:   createHandler,
-		readLoopHandler: readLoopHandler,
+// Factory is a function to create new connections.
+type Factory func() (IOSession, error)
+
+// NewIOSessionPool returns a new pool based on buffered channels with an initial
+// capacity and maximum capacity. Factory is used when initial capacity is
+// greater than zero to fill the pool. A zero initialCap doesn't fill the Pool
+// until a new Get() is called. During a Get(), If there is no new connection
+// available in the pool, a new connection will be created via the Factory()
+// method.
+func NewIOSessionPool(initialCap, maxCap int, factory Factory) (IOSessionPool, error) {
+	if initialCap < 0 || maxCap <= 0 || initialCap > maxCap {
+		return nil, errors.New("invalid capacity settings")
 	}
+
+	c := &channelPool{
+		conns:   make(chan IOSession, maxCap),
+		factory: factory,
+	}
+
+	// create initial connections, if something goes wrong,
+	// just close the pool error out.
+	for i := 0; i < initialCap; i++ {
+		conn, err := factory()
+		if err != nil {
+			c.Close()
+			return nil, fmt.Errorf("factory is not able to fill the pool: %s", err)
+		}
+		c.conns <- conn
+	}
+
+	return c, nil
 }
 
-// GetConn returns a IOSession with the target server address
-// If can not connect to server, returns a error
-func (p *ConnectionPool) GetConn(addr string) (IOSession, error) {
-	conn := p.getConnLocked(addr)
-	ok, err := p.checkConnect(addr, conn)
-	if err != nil {
-		return nil, err
+type channelPool struct {
+	sync.Mutex
+
+	conns   chan IOSession
+	factory Factory
+}
+
+func (c *channelPool) getConns() chan IOSession {
+	c.Lock()
+	conns := c.conns
+	c.Unlock()
+	return conns
+}
+
+// Get implements the Pool interfaces Get() method. If there is no new
+// connection available in the pool, a new connection will be created via the
+// Factory() method.
+func (c *channelPool) Get() (IOSession, error) {
+	conns := c.getConns()
+	if conns == nil {
+		return nil, ErrClosed
 	}
 
-	if ok {
+	// wrap our connections with out custom net.Conn implementation (wrapConn
+	// method) that puts the connection back to the pool if it's closed.
+	select {
+	case conn := <-conns:
+		if conn == nil {
+			return nil, ErrClosed
+		}
+
+		return conn, nil
+	default:
+		conn, err := c.factory()
+		if err != nil {
+			return nil, err
+		}
+
 		return conn, nil
 	}
-
-	return conn, fmt.Errorf("not connected: %s", addr)
 }
 
-func (p *ConnectionPool) getConnLocked(addr string) IOSession {
-	p.RLock()
-	conn := p.conns[addr]
-	p.RUnlock()
-
-	if conn != nil {
-		return conn
+// Put implements the Pool interfaces Put() method. If the pool is full or closed,
+// conn is simply closed. A nil conn will be rejected.
+func (c *channelPool) Put(conn IOSession) error {
+	if conn == nil {
+		return errors.New("connection is nil. rejecting")
 	}
 
-	return p.createConn(addr)
+	c.Lock()
+
+	if c.conns == nil {
+		c.Unlock()
+		// pool is closed, close passed connection
+		return conn.Close()
+	}
+
+	// put the resource back into the pool. If the pool is full, this will
+	// block and the default case will be executed.
+	select {
+	case c.conns <- conn:
+		c.Unlock()
+		return nil
+	default:
+		// pool is full, close passed connection
+		c.Unlock()
+		return conn.Close()
+	}
 }
 
-func (p *ConnectionPool) createConn(addr string) IOSession {
-	p.Lock()
+func (c *channelPool) Close() {
+	c.Lock()
+	conns := c.conns
+	c.conns = nil
+	c.factory = nil
+	c.Unlock()
 
-	// double check
-	if conn, ok := p.conns[addr]; ok {
-		p.Unlock()
-		return conn
+	if conns == nil {
+		return
 	}
 
-	conn := p.createHandler(addr)
-	p.conns[addr] = conn
-	p.Unlock()
-	return conn
+	close(conns)
+	for conn := range conns {
+		conn.Close()
+	}
 }
 
-func (p *ConnectionPool) checkConnect(addr string, conn IOSession) (bool, error) {
-	if nil == conn {
-		return false, nil
-	}
-
-	p.Lock()
-	if conn.IsConnected() {
-		p.Unlock()
-		return true, nil
-	}
-
-	ok, err := conn.Connect()
-	if err != nil {
-		p.Unlock()
-		return false, err
-	}
-
-	if p.readLoopHandler != nil {
-		go p.readLoopHandler(addr, conn)
-	}
-
-	p.Unlock()
-	return ok, nil
+func (c *channelPool) Len() int {
+	return len(c.getConns())
 }

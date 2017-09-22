@@ -42,6 +42,9 @@ type connector struct {
 	out          *ByteBuf
 	closed       int32
 	writeBufSize int
+
+	batchLimit uint64
+	batchCount uint64
 }
 
 // NewConnector create a new connector
@@ -76,6 +79,7 @@ func (c *connector) OutBuf() *ByteBuf {
 func (c *connector) WriteOutBuf() error {
 	buf := c.out
 	n, err := c.conn.Write(buf.buf[buf.readerIndex:buf.writerIndex])
+	c.batchCount = 0
 
 	if err != nil {
 		c.writeRelease()
@@ -214,6 +218,26 @@ func (c *connector) Write(msg interface{}) error {
 	}
 
 	return c.WriteOutBuf()
+}
+
+func (c *connector) SetBatchSize(size uint64) {
+	c.batchLimit = size
+}
+
+func (c *connector) WriteBatch(msg interface{}) error {
+	err := c.encoder.Encode(msg, c.out)
+
+	if err != nil {
+		return err
+	}
+
+	c.batchCount++
+
+	if c.batchCount%c.batchLimit == 0 {
+		return c.WriteOutBuf()
+	}
+
+	return nil
 }
 
 // RemoteAddr get remote address
