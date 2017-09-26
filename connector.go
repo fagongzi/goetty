@@ -280,6 +280,7 @@ func (c *connector) writeRelease() {
 
 func (c *connector) bindWriteTimeout() {
 	if c.cnf.WriteTimeoutFn != nil {
+		c.lastTimeout.Stop()
 		c.lastTimeout, _ = c.cnf.TimeWheel.Schedule(c.cnf.TimeoutWrite, c.writeTimeout, nil)
 	}
 }
