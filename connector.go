@@ -78,17 +78,22 @@ func (c *connector) OutBuf() *ByteBuf {
 // WriteOutBuf writes bytes that in the internal bytebuf
 func (c *connector) WriteOutBuf() error {
 	buf := c.out
-	n, err := c.conn.Write(buf.buf[buf.readerIndex:buf.writerIndex])
 	c.batchCount = 0
 
-	if err != nil {
-		c.writeRelease()
-		return err
-	}
+	written := 0
+	all := buf.Readable()
+	for {
+		if written == all {
+			break
+		}
 
-	if n != buf.Readable() {
-		c.writeRelease()
-		return ErrWrite
+		n, err := c.conn.Write(buf.buf[buf.readerIndex+written : buf.writerIndex])
+		if err != nil {
+			c.writeRelease()
+			return err
+		}
+
+		written += n
 	}
 
 	c.writeRelease()
