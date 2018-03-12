@@ -35,16 +35,12 @@ type connector struct {
 
 	lastTimeout Timeout
 
-	conn         net.Conn
-	decoder      Decoder
-	encoder      Encoder
-	in           *ByteBuf
-	out          *ByteBuf
-	closed       int32
-	writeBufSize int
-
-	batchLimit uint64
-	batchCount uint64
+	conn    net.Conn
+	decoder Decoder
+	encoder Encoder
+	in      *ByteBuf
+	out     *ByteBuf
+	closed  int32
 }
 
 // NewConnector create a new connector
@@ -55,13 +51,12 @@ func NewConnector(cnf *Conf, decoder Decoder, encoder Encoder) IOSession {
 // NewConnectorSize create a new connector
 func NewConnectorSize(cnf *Conf, decoder Decoder, encoder Encoder, readBufSize, writeBufSize int) IOSession {
 	return &connector{
-		cnf:          cnf,
-		in:           NewByteBuf(readBufSize),
-		out:          NewByteBuf(writeBufSize),
-		writeBufSize: writeBufSize,
-		decoder:      decoder,
-		encoder:      encoder,
-		attrs:        make(map[string]interface{}),
+		cnf:     cnf,
+		in:      NewByteBuf(readBufSize),
+		out:     NewByteBuf(writeBufSize),
+		decoder: decoder,
+		encoder: encoder,
+		attrs:   make(map[string]interface{}),
 	}
 }
 
@@ -73,31 +68,6 @@ func (c *connector) InBuf() *ByteBuf {
 // OutBuf returns internal bytebuf that used for write to client
 func (c *connector) OutBuf() *ByteBuf {
 	return c.out
-}
-
-// WriteOutBuf writes bytes that in the internal bytebuf
-func (c *connector) WriteOutBuf() error {
-	buf := c.out
-	c.batchCount = 0
-
-	written := 0
-	all := buf.Readable()
-	for {
-		if written == all {
-			break
-		}
-
-		n, err := c.conn.Write(buf.buf[buf.readerIndex+written : buf.writerIndex])
-		if err != nil {
-			c.writeRelease()
-			return err
-		}
-
-		written += n
-	}
-
-	c.writeRelease()
-	return nil
 }
 
 // SetAttr add a attr on session
@@ -218,32 +188,49 @@ func (c *connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
 
 // Write write a msg to server
 func (c *connector) Write(msg interface{}) error {
+	return c.write(msg, false)
+}
+
+// WriteAndFlush write a msg to server
+func (c *connector) WriteAndFlush(msg interface{}) error {
+	return c.write(msg, true)
+}
+
+func (c *connector) write(msg interface{}, flush bool) error {
 	err := c.encoder.Encode(msg, c.out)
 
 	if err != nil {
 		return err
 	}
 
-	return c.WriteOutBuf()
-}
-
-func (c *connector) SetBatchSize(size uint64) {
-	c.batchLimit = size
-}
-
-func (c *connector) WriteBatch(msg interface{}) error {
-	err := c.encoder.Encode(msg, c.out)
-
-	if err != nil {
-		return err
+	if flush {
+		return c.Flush()
 	}
 
-	c.batchCount++
+	return nil
+}
 
-	if c.batchCount%c.batchLimit == 0 {
-		return c.WriteOutBuf()
+// Flush writes bytes that in the internal bytebuf
+func (c *connector) Flush() error {
+	buf := c.out
+
+	written := 0
+	all := buf.Readable()
+	for {
+		if written == all {
+			break
+		}
+
+		n, err := c.conn.Write(buf.buf[buf.readerIndex+written : buf.writerIndex])
+		if err != nil {
+			c.writeRelease()
+			return err
+		}
+
+		written += n
 	}
 
+	c.writeRelease()
 	return nil
 }
 

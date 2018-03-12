@@ -24,12 +24,11 @@ type IOSession interface {
 	Connect() (bool, error)
 	Read() (interface{}, error)
 	ReadTimeout(timeout time.Duration) (interface{}, error)
-	SetBatchSize(size uint64)
 	Write(msg interface{}) error
-	WriteBatch(msg interface{}) error
+	WriteAndFlush(msg interface{}) error
+	Flush() error
 	InBuf() *ByteBuf
 	OutBuf() *ByteBuf
-	WriteOutBuf() error
 	SetAttr(key string, value interface{})
 	GetAttr(key string) interface{}
 	RemoteAddr() string
@@ -47,9 +46,6 @@ type clientIOSession struct {
 
 	in  *ByteBuf
 	out *ByteBuf
-
-	batchLimit uint64
-	batchCount uint64
 
 	attrs map[string]interface{}
 }
@@ -117,30 +113,23 @@ func (s *clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error
 
 // Write wrirte a msg
 func (s *clientIOSession) Write(msg interface{}) error {
+	return s.write(msg, false)
+}
+
+// WriteAndFlush write a msg
+func (s *clientIOSession) WriteAndFlush(msg interface{}) error {
+	return s.write(msg, true)
+}
+
+func (s *clientIOSession) write(msg interface{}, flush bool) error {
 	err := s.svr.encoder.Encode(msg, s.out)
 
 	if err != nil {
 		return err
 	}
 
-	return s.WriteOutBuf()
-}
-
-func (s *clientIOSession) SetBatchSize(size uint64) {
-	s.batchLimit = size
-}
-
-func (s *clientIOSession) WriteBatch(msg interface{}) error {
-	err := s.svr.encoder.Encode(msg, s.out)
-
-	if err != nil {
-		return err
-	}
-
-	s.batchCount++
-
-	if s.batchCount%s.batchLimit == 0 {
-		return s.WriteOutBuf()
+	if flush {
+		return s.Flush()
 	}
 
 	return nil
@@ -156,9 +145,8 @@ func (s *clientIOSession) OutBuf() *ByteBuf {
 	return s.out
 }
 
-// WriteOutBuf writes bytes that in the internal bytebuf
-func (s *clientIOSession) WriteOutBuf() error {
-	s.batchCount = 0
+// Flush writes bytes that in the internal bytebuf
+func (s *clientIOSession) Flush() error {
 	buf := s.out
 	written := 0
 	all := buf.Readable()
