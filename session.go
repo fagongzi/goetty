@@ -59,8 +59,8 @@ func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
 		conn:  conn,
 		svr:   svr,
 		attrs: make(map[string]interface{}),
-		in:    NewByteBuf(svr.readBufSize),
-		out:   NewByteBuf(svr.writeBufSize),
+		in:    NewByteBuf(svr.opts.readBufSize),
+		out:   NewByteBuf(svr.opts.writeBufSize),
 	}
 }
 
@@ -85,7 +85,7 @@ func (s *clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error
 
 	for {
 		if s.in.Readable() > 0 {
-			complete, msg, err = s.svr.decoder.Decode(s.in)
+			complete, msg, err = s.svr.opts.decoder.Decode(s.in)
 
 			if !complete && err == nil {
 				complete, msg, err = s.readFromConn(timeout)
@@ -122,7 +122,7 @@ func (s *clientIOSession) WriteAndFlush(msg interface{}) error {
 }
 
 func (s *clientIOSession) write(msg interface{}, flush bool) error {
-	err := s.svr.encoder.Encode(msg, s.out)
+	err := s.svr.opts.encoder.Encode(msg, s.out)
 
 	if err != nil {
 		return err
@@ -241,7 +241,7 @@ func (s *clientIOSession) readFromConn(timeout time.Duration) (bool, interface{}
 		return false, nil, err
 	}
 
-	return s.svr.decoder.Decode(s.in)
+	return s.svr.opts.decoder.Decode(s.in)
 }
 
 func getHash(id interface{}) int {

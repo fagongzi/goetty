@@ -46,16 +46,18 @@ func (d StringDecoder) Decode(in *ByteBuf) (complete bool, msg interface{}, err 
 }
 
 var (
-	serverAddr = "127.0.0.1:12345"
+	serverAddr = "127.0.0.1:11111"
 	decoder    = NewIntLengthFieldBasedDecoder(NewStringDecoder())
 	encoder    = NewStringEncoder()
 )
 
 func TestServerStart(t *testing.T) {
-	server := NewServer(serverAddr, decoder, encoder, NewInt64IDGenerator())
+	server := NewServer(serverAddr,
+		WithServerDecoder(decoder),
+		WithServerEncoder(encoder))
 
 	go func() {
-		time.Sleep(time.Second * 2)
+		<-server.Started()
 		server.Stop()
 	}()
 
@@ -67,31 +69,29 @@ func TestServerStart(t *testing.T) {
 }
 
 func TestReceivedMsg(t *testing.T) {
-	server := NewServer(serverAddr, NewIntLengthFieldBasedDecoder(NewStringDecoder()), NewStringEncoder(), NewInt64IDGenerator())
+	server := NewServer(serverAddr,
+		WithServerDecoder(decoder),
+		WithServerEncoder(encoder))
 
 	go func() {
-		tw := NewTimeoutWheel(WithTickInterval(time.Second))
-		time.Sleep(time.Second * 2)
-		cnf := &Conf{
-			Addr:                   serverAddr,
-			TimeoutWrite:           time.Second * 2,
-			TimeoutConnectToServer: time.Second * 5,
-			TimeWheel:              tw,
-		}
-		conn := NewConnector(cnf, decoder, encoder)
+		<-server.Started()
+
+		conn := NewConnector(serverAddr,
+			WithClientDecoder(decoder),
+			WithClientEncoder(encoder))
 		_, err := conn.Connect()
 		if err != nil {
 			server.Stop()
 			t.Error(err)
 		} else {
-			conn.Write("hello")
+			conn.WriteAndFlush("hello")
 		}
 	}()
 
 	err := server.Start(func(session IOSession) error {
 		defer server.Stop()
 
-		msg, err := session.Read()
+		msg, err := session.ReadTimeout(time.Second)
 		if err != nil {
 			t.Error(err)
 			return err
