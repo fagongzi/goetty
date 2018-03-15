@@ -171,16 +171,15 @@ func (s *Server) Start(loopFn func(IOSession) error) error {
 	}
 }
 
-func (s *Server) closeSession(session IOSession) {
-	s.deleteSession(session)
-	session.Close()
-}
-
 func (s *Server) addSession(session IOSession) {
 	m := s.sessionMaps[session.Hash()%DefaultSessionBucketSize]
 	m.Lock()
 	m.sessions[session.ID()] = session
 	m.Unlock()
+
+	for _, sm := range s.opts.middlewares {
+		sm.Connected(session)
+	}
 }
 
 func (s *Server) deleteSession(session IOSession) {
@@ -188,6 +187,10 @@ func (s *Server) deleteSession(session IOSession) {
 	m.Lock()
 	delete(m.sessions, session.ID())
 	m.Unlock()
+
+	for _, sm := range s.opts.middlewares {
+		sm.Closed(session)
+	}
 }
 
 // GetSession get session by id

@@ -29,6 +29,9 @@ type connector struct {
 	attrs       map[string]interface{}
 	in          *ByteBuf
 	out         *ByteBuf
+
+	// middleware
+	middlewares []Middleware
 }
 
 // NewConnector create a new connector with opts
@@ -40,11 +43,12 @@ func NewConnector(svrAddr string, opts ...ClientOption) IOSession {
 	sopts.adjust()
 
 	return &connector{
-		addr:  svrAddr,
-		in:    NewByteBuf(sopts.readBufSize),
-		out:   NewByteBuf(sopts.writeBufSize),
-		opts:  sopts,
-		attrs: make(map[string]interface{}),
+		addr:        svrAddr,
+		in:          NewByteBuf(sopts.readBufSize),
+		out:         NewByteBuf(sopts.writeBufSize),
+		opts:        sopts,
+		attrs:       make(map[string]interface{}),
+		middlewares: sopts.middlewares,
 	}
 }
 
@@ -99,6 +103,10 @@ func (c *connector) Connect() (bool, error) {
 	conn.(*net.TCPConn).SetNoDelay(true)
 	conn.(*net.TCPConn).SetLinger(0)
 	c.conn = conn
+	for _, sm := range c.middlewares {
+		sm.Connected(c)
+	}
+
 	atomic.StoreInt32(&c.closed, 0)
 	c.bindWriteTimeout()
 
@@ -129,6 +137,10 @@ func (c *connector) reset() {
 	c.conn = nil
 	c.in.Clear()
 	c.out.Clear()
+
+	for _, sm := range c.middlewares {
+		sm.Closed(c)
+	}
 }
 
 // Read read data from server, block until a msg arrived or  get a error
@@ -138,40 +150,55 @@ func (c *connector) Read() (interface{}, error) {
 
 // ReadTimeout read data from server with a timeout duration
 func (c *connector) ReadTimeout(timeout time.Duration) (interface{}, error) {
-	if !c.IsConnected() {
-		return nil, ErrIllegalState
-	}
-
-	var msg interface{}
-	var err error
-	var complete bool
-
 	for {
-		if c.in.Readable() > 0 {
-			complete, msg, err = c.opts.decoder.Decode(c.in)
-
-			if !complete && err == nil {
-				complete, msg, err = c.readFromConn(timeout)
-			}
-		} else {
-			complete, msg, err = c.readFromConn(timeout)
+		if !c.IsConnected() {
+			return nil, ErrIllegalState
 		}
 
-		if nil != err {
-			c.in.Clear()
+		doRead, msg, err := c.doPreRead()
+		if err != nil {
 			return nil, err
 		}
 
-		if complete {
-			break
+		if !doRead {
+			return msg, nil
+		}
+
+		var complete bool
+		for {
+			if c.in.Readable() > 0 {
+				complete, msg, err = c.opts.decoder.Decode(c.in)
+
+				if !complete && err == nil {
+					complete, msg, err = c.readFromConn(timeout)
+				}
+			} else {
+				complete, msg, err = c.readFromConn(timeout)
+			}
+
+			if nil != err {
+				c.in.Clear()
+				return nil, err
+			}
+
+			if complete {
+				break
+			}
+		}
+
+		if c.in.Readable() == 0 {
+			c.in.Clear()
+		}
+
+		returnRead, readMsg, err := c.doPostRead(msg)
+		if err != nil {
+			return nil, err
+		}
+
+		if returnRead {
+			return readMsg, err
 		}
 	}
-
-	if c.in.Readable() == 0 {
-		c.in.Clear()
-	}
-
-	return msg, err
 }
 
 // Write write a msg to server
@@ -182,20 +209,6 @@ func (c *connector) Write(msg interface{}) error {
 // WriteAndFlush write a msg to server
 func (c *connector) WriteAndFlush(msg interface{}) error {
 	return c.write(msg, true)
-}
-
-func (c *connector) write(msg interface{}, flush bool) error {
-	err := c.opts.encoder.Encode(msg, c.out)
-
-	if err != nil {
-		return err
-	}
-
-	if flush {
-		return c.Flush()
-	}
-
-	return nil
 }
 
 // Flush writes bytes that in the internal bytebuf
@@ -239,6 +252,99 @@ func (c *connector) RemoteIP() string {
 	}
 
 	return strings.Split(addr, ":")[0]
+}
+
+func (c *connector) doPreRead() (bool, interface{}, error) {
+	for _, sm := range c.middlewares {
+		doNext, msg, err := sm.PreRead(c)
+		if err != nil {
+			return false, false, err
+		}
+
+		if !doNext {
+			return false, msg, nil
+		}
+	}
+
+	return true, nil, nil
+}
+
+func (c *connector) doPostRead(msg interface{}) (bool, interface{}, error) {
+	readedMsg := msg
+
+	doNext := true
+	var err error
+	for _, sm := range c.middlewares {
+		doNext, readedMsg, err = sm.PostRead(readedMsg, c)
+		if err != nil {
+			return false, nil, err
+		}
+
+		if !doNext {
+			return false, readedMsg, nil
+		}
+	}
+
+	return true, readedMsg, nil
+}
+
+func (c *connector) doPreWrite(msg interface{}) (bool, interface{}, error) {
+	var err error
+	var doNext bool
+	writeMsg := msg
+
+	for _, sm := range c.middlewares {
+		doNext, writeMsg, err = sm.PreWrite(writeMsg, c)
+		if err != nil {
+			return false, writeMsg, err
+		}
+
+		if !doNext {
+			return false, writeMsg, nil
+		}
+	}
+
+	return true, writeMsg, nil
+}
+
+func (c *connector) doPostWrite(msg interface{}) error {
+	for _, sm := range c.middlewares {
+		doNext, err := sm.PostWrite(msg, c)
+		if err != nil {
+			return err
+		}
+
+		if !doNext {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (c *connector) write(msg interface{}, flush bool) error {
+	doWrite, writeMsg, err := c.doPreWrite(msg)
+	if err != nil {
+		return err
+	}
+
+	if !doWrite {
+		return nil
+	}
+
+	err = c.opts.encoder.Encode(writeMsg, c.out)
+	if err != nil {
+		return err
+	}
+
+	if flush {
+		err = c.Flush()
+		if err != nil {
+			return err
+		}
+	}
+
+	return c.doPostWrite(writeMsg)
 }
 
 func (c *connector) readFromConn(timeout time.Duration) (bool, interface{}, error) {

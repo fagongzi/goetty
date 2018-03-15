@@ -15,7 +15,7 @@ package goetty
 
 import (
 	"fmt"
-	sync "sync"
+	"sync"
 )
 
 // OffsetQueue is a queue for sync.
@@ -26,8 +26,7 @@ type OffsetQueue struct {
 	items      []interface{}
 }
 
-// NewOffsetQueue returns a offset queue
-func NewOffsetQueue() *OffsetQueue {
+func newOffsetQueue() *OffsetQueue {
 	return &OffsetQueue{}
 }
 
@@ -43,11 +42,16 @@ func (q *OffsetQueue) Add(item interface{}) uint64 {
 
 // Get returns all the items after the offset, and remove all items before this offset
 func (q *OffsetQueue) Get(offset uint64) ([]interface{}, uint64) {
+	oldOffset := offset
+	if offset > 0 {
+		offset = offset - 1
+	}
+
 	q.Lock()
 	max := q.getMaxOffset0()
 	if offset > max {
 		panic(fmt.Sprintf("bug: error offset %d, end is %d", offset, q.end))
-	} else if offset < q.start || (offset == q.start && q.start == 0) {
+	} else if offset < q.start || (oldOffset == 0 && offset == q.start && q.start == 0) {
 		value := q.items[0:]
 		q.Unlock()
 		return value, max
@@ -87,5 +91,5 @@ func (q *OffsetQueue) getMaxOffset0() uint64 {
 		return 0
 	}
 
-	return q.end - 1
+	return q.end
 }

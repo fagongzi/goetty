@@ -38,16 +38,13 @@ type IOSession interface {
 type clientIOSession struct {
 	sync.RWMutex
 
-	id  interface{}
-	svr *Server
-
+	id     interface{}
 	conn   net.Conn
 	closed int32
-
-	in  *ByteBuf
-	out *ByteBuf
-
-	attrs map[string]interface{}
+	svr    *Server
+	in     *ByteBuf
+	out    *ByteBuf
+	attrs  map[string]interface{}
 }
 
 func newClientIOSession(id interface{}, conn net.Conn, svr *Server) IOSession {
@@ -79,36 +76,50 @@ func (s *clientIOSession) Read() (interface{}, error) {
 
 // ReadTimeout read a msg  with a timeout duration
 func (s *clientIOSession) ReadTimeout(timeout time.Duration) (interface{}, error) {
-	var msg interface{}
-	var err error
-	var complete bool
-
 	for {
-		if s.in.Readable() > 0 {
-			complete, msg, err = s.svr.opts.decoder.Decode(s.in)
-
-			if !complete && err == nil {
-				complete, msg, err = s.readFromConn(timeout)
-			}
-		} else {
-			complete, msg, err = s.readFromConn(timeout)
+		doRead, msg, err := s.doPreRead()
+		if err != nil {
+			return nil, err
+		}
+		if !doRead {
+			return msg, nil
 		}
 
-		if nil != err {
+		var complete bool
+		for {
+			if s.in.Readable() > 0 {
+				complete, msg, err = s.svr.opts.decoder.Decode(s.in)
+
+				if !complete && err == nil {
+					complete, msg, err = s.readFromConn(timeout)
+				}
+			} else {
+				complete, msg, err = s.readFromConn(timeout)
+			}
+
+			if nil != err {
+				s.in.Clear()
+				return nil, err
+			}
+
+			if complete {
+				break
+			}
+		}
+
+		if s.in.Readable() == 0 {
 			s.in.Clear()
+		}
+
+		returnRead, readedMsg, err := s.doPostRead(msg)
+		if err != nil {
 			return nil, err
 		}
 
-		if complete {
-			break
+		if returnRead {
+			return readedMsg, err
 		}
 	}
-
-	if s.in.Readable() == 0 {
-		s.in.Clear()
-	}
-
-	return msg, err
 }
 
 // Write wrirte a msg
@@ -119,20 +130,6 @@ func (s *clientIOSession) Write(msg interface{}) error {
 // WriteAndFlush write a msg
 func (s *clientIOSession) WriteAndFlush(msg interface{}) error {
 	return s.write(msg, true)
-}
-
-func (s *clientIOSession) write(msg interface{}, flush bool) error {
-	err := s.svr.opts.encoder.Encode(msg, s.out)
-
-	if err != nil {
-		return err
-	}
-
-	if flush {
-		return s.Flush()
-	}
-
-	return nil
 }
 
 // InBuf returns internal bytebuf that used for read from server
@@ -230,13 +227,105 @@ func (s *clientIOSession) RemoteIP() string {
 	return strings.Split(addr, ":")[0]
 }
 
+func (s *clientIOSession) doPreRead() (bool, interface{}, error) {
+	for _, sm := range s.svr.opts.middlewares {
+		doNext, msg, err := sm.PreRead(s)
+		if err != nil {
+			return false, false, err
+		}
+
+		if !doNext {
+			return false, msg, nil
+		}
+	}
+
+	return true, nil, nil
+}
+
+func (s *clientIOSession) doPostRead(msg interface{}) (bool, interface{}, error) {
+	readedMsg := msg
+
+	doNext := true
+	var err error
+	for _, sm := range s.svr.opts.middlewares {
+		doNext, readedMsg, err = sm.PostRead(readedMsg, s)
+		if err != nil {
+			return false, nil, err
+		}
+
+		if !doNext {
+			return false, readedMsg, nil
+		}
+	}
+
+	return true, readedMsg, nil
+}
+
+func (s *clientIOSession) doPreWrite(msg interface{}) (bool, interface{}, error) {
+	var err error
+	var doNext bool
+	writeMsg := msg
+
+	for _, sm := range s.svr.opts.middlewares {
+		doNext, writeMsg, err = sm.PreWrite(writeMsg, s)
+		if err != nil {
+			return false, writeMsg, err
+		}
+
+		if !doNext {
+			return false, writeMsg, nil
+		}
+	}
+
+	return true, writeMsg, nil
+}
+
+func (s *clientIOSession) doPostWrite(msg interface{}) error {
+	for _, sm := range s.svr.opts.middlewares {
+		doNext, err := sm.PostWrite(msg, s)
+		if err != nil {
+			return err
+		}
+
+		if !doNext {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (s *clientIOSession) write(msg interface{}, flush bool) error {
+	doWrite, writeMsg, err := s.doPreWrite(msg)
+	if err != nil {
+		return err
+	}
+
+	if !doWrite {
+		return nil
+	}
+
+	err = s.svr.opts.encoder.Encode(writeMsg, s.out)
+	if err != nil {
+		return err
+	}
+
+	if flush {
+		err = s.Flush()
+		if err != nil {
+			return err
+		}
+	}
+
+	return s.doPostWrite(writeMsg)
+}
+
 func (s *clientIOSession) readFromConn(timeout time.Duration) (bool, interface{}, error) {
 	if 0 != timeout {
 		s.conn.SetReadDeadline(time.Now().Add(timeout))
 	}
 
 	_, err := s.in.ReadFrom(s.conn)
-
 	if err != nil {
 		return false, nil, err
 	}

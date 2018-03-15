@@ -71,23 +71,20 @@ func writeLen(prefix byte, n int, lenScratch []byte, buf *goetty.ByteBuf) error 
 	}
 	lenScratch[i] = prefix
 
-	_, err := buf.Write(lenScratch[i:])
-	return err
+	return buf.Write(lenScratch[i:])
 }
 
 func writeString(s string, lenScratch []byte, buf *goetty.ByteBuf) error {
 	writeLen('$', len(s), lenScratch, buf)
 
 	buf.Write([]byte(s))
-	_, err := buf.Write(Delims)
-	return err
+	return buf.Write(Delims)
 }
 
 func writeBytes(p []byte, lenScratch []byte, buf *goetty.ByteBuf) error {
 	writeLen('$', len(p), lenScratch, buf)
 	buf.Write(p)
-	_, err := buf.Write(Delims)
-	return err
+	return buf.Write(Delims)
 }
 
 func writeInt64(n int64, lenScratch, numScratch []byte, buf *goetty.ByteBuf) error {

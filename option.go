@@ -26,6 +26,7 @@ type serverOptions struct {
 	readBufSize, writeBufSize int
 	sessionBucketSize         int
 	useSyncProtocol           bool
+	middlewares               []Middleware
 }
 
 func (opts *serverOptions) adjust() {
@@ -89,6 +90,13 @@ func WithServerIDGenerator(generator IDGenerator) ServerOption {
 	}
 }
 
+// WithServerMiddleware option of handle write timeout
+func WithServerMiddleware(middlewares ...Middleware) ServerOption {
+	return func(opts *serverOptions) {
+		opts.middlewares = append(opts.middlewares, middlewares...)
+	}
+}
+
 // ClientOption option of client side
 type ClientOption func(*clientOptions)
 
@@ -100,6 +108,7 @@ type clientOptions struct {
 	writeTimeout              time.Duration
 	writeTimeoutHandler       func(string, IOSession)
 	timeWheel                 *TimeoutWheel
+	middlewares               []Middleware
 }
 
 func (opts *clientOptions) adjust() {
@@ -161,5 +170,12 @@ func WithClientWriteTimeoutHandler(timeout time.Duration, handler func(string, I
 		opts.writeTimeout = timeout
 		opts.writeTimeoutHandler = handler
 		opts.timeWheel = timeWheel
+	}
+}
+
+// WithClientMiddleware option of handle write timeout
+func WithClientMiddleware(middlewares ...Middleware) ClientOption {
+	return func(opts *clientOptions) {
+		opts.middlewares = append(opts.middlewares, middlewares...)
 	}
 }
