@@ -283,11 +283,16 @@ func (b *ByteBuf) MarkedBytesReaded() {
 // Read read bytes
 // return readedBytesCount, byte array, error
 func (b *ByteBuf) Read(p []byte) (n int, err error) {
-	if len(p) > b.Readable() {
+	if len(p) == 0 {
 		return 0, nil
 	}
 
-	n = copy(p, b.buf[b.readerIndex:b.readerIndex+len(p)])
+	size := len(p)
+	if len(p) > b.Readable() {
+		size = b.Readable()
+	}
+
+	n = copy(p, b.buf[b.readerIndex:b.readerIndex+size])
 	b.readerIndex += n
 	return n, nil
 }
