@@ -3,6 +3,7 @@ package goetty
 import (
 	"errors"
 	"hash/crc32"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -154,6 +155,9 @@ func (s *clientIOSession) Flush() error {
 
 		n, err := s.conn.Write(buf.buf[buf.readerIndex+written : buf.writerIndex])
 		if err != nil {
+			for _, sm := range s.svr.opts.middlewares {
+				sm.WriteError(err, s)
+			}
 			s.out.Clear()
 			return err
 		}
@@ -325,8 +329,14 @@ func (s *clientIOSession) readFromConn(timeout time.Duration) (bool, interface{}
 		s.conn.SetReadDeadline(time.Now().Add(timeout))
 	}
 
-	_, err := s.in.ReadFrom(s.conn)
+	_, err := io.Copy(s.in, s.conn)
 	if err != nil {
+		for _, sm := range s.svr.opts.middlewares {
+			oerr := sm.ReadError(err, s)
+			if oerr == nil {
+				return false, nil, nil
+			}
+		}
 		return false, nil, err
 	}
 

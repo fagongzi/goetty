@@ -6,6 +6,10 @@ import (
 	"io"
 )
 
+const (
+	minScale = 128
+)
+
 //ReadN read n bytes from a reader
 func ReadN(r io.Reader, n int) ([]byte, error) {
 	data := make([]byte, n)
@@ -363,29 +367,23 @@ func (b *ByteBuf) PeekN(offset int, n int) ([]byte, error) {
 // buffer becomes too large, ReadFrom will panic with ErrTooLarge.
 func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 	for {
-		b.Expansion(b.Capacity())
-
-		if r == nil {
-			return 0, io.EOF
+		b.Expansion(minScale)
+		m, e := r.Read(b.buf[b.writerIndex : b.writerIndex+minScale])
+		if m < 0 {
+			panic("bug: negative Read")
 		}
-
-		m, e := r.Read(b.buf[b.writerIndex:b.Capacity()])
-
-		b.buf = b.buf[0 : b.writerIndex+m]
 
 		b.writerIndex += m
 		n += int64(m)
-
 		if e == io.EOF {
-			return n, e
+			return n, nil // e is EOF, so return nil explicitly
 		}
-
 		if e != nil {
 			return n, e
 		}
 
-		if n > 0 {
-			return n, nil
+		if n < minScale {
+			return n, e
 		}
 	}
 }
@@ -397,12 +395,12 @@ func (b *ByteBuf) Writeable() int {
 
 // Write appends the contents of p to the buffer, growing the buffer as
 // needed.
-func (b *ByteBuf) Write(p []byte) error {
+func (b *ByteBuf) Write(p []byte) (int, error) {
 	n := len(p)
 	b.Expansion(n)
 	copy(b.buf[b.writerIndex:], p)
 	b.writerIndex += n
-	return nil
+	return n, nil
 }
 
 // WriteInt write int value to buf using big order
@@ -442,7 +440,8 @@ func (b *ByteBuf) WriteByte(v byte) error {
 
 // WriteString write a string value to buf
 func (b *ByteBuf) WriteString(v string) error {
-	return b.Write(StringToSlice(v))
+	_, err := b.Write(StringToSlice(v))
+	return err
 }
 
 // WriteByteBuf write all readable data to this buf

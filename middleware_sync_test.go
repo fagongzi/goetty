@@ -21,7 +21,7 @@ func TestSyncClientMiddleware(t *testing.T) {
 	writer := func(conn IOSession, msg interface{}) error {
 		return nil
 	}
-	sm := NewSyncProtocolClientMiddleware(bizDecoder, bizEncoder, writer)
+	sm := NewSyncProtocolClientMiddleware(bizDecoder, bizEncoder, writer, 3)
 	sm.(*syncClientMiddleware).cached.push("hello")
 	yes, msg, err := sm.PostRead("hello", conn)
 	if err != nil {
@@ -246,7 +246,7 @@ func TestSyncMiddleware(t *testing.T) {
 			WithClientEncoder(syncEncoder),
 			WithClientMiddleware(NewSyncProtocolClientMiddleware(bizDecoder, bizEncoder, func(conn IOSession, msg interface{}) error {
 				return conn.WriteAndFlush(msg)
-			})))
+			}, 3)))
 
 		_, err := conn.Connect()
 		if err != nil {

@@ -10,6 +10,7 @@ const (
 	cmdNotifySync    = byte(2)
 	cmdNotifySyncRsp = byte(3)
 	cmdNotifyRaw     = byte(4)
+	cmdNotifyHB      = byte(5)
 )
 
 var (
@@ -21,6 +22,10 @@ var (
 
 type notifyRaw struct {
 	buf *ByteBuf
+}
+
+type notifyHB struct {
+	offset uint64
 }
 
 type notify struct {
@@ -125,6 +130,10 @@ func (codec *SyncCodec) Decode(in *ByteBuf) (bool, interface{}, error) {
 		value.buf.Write(in.GetMarkedRemindData())
 		in.MarkedBytesReaded()
 		return true, value, nil
+	} else if cmd == cmdNotifyHB {
+		value := &notifyHB{}
+		value.offset, _ = in.ReadUInt64()
+		return true, value, nil
 	}
 
 	return false, nil, nil
@@ -153,6 +162,10 @@ func (codec *SyncCodec) Encode(data interface{}, out *ByteBuf) error {
 		out.WriteByte(msg.count)
 		out.WriteByteBuf(msg.buf)
 		releaseNotifySyncRsp(msg)
+		return nil
+	} else if msg, ok := data.(*notifyHB); ok {
+		out.WriteByte(cmdNotifyHB)
+		out.WriteUint64(msg.offset)
 		return nil
 	}
 

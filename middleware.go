@@ -4,14 +4,12 @@ package goetty
 type Middleware interface {
 	PreRead(conn IOSession) (bool, interface{}, error)
 	PostRead(msg interface{}, conn IOSession) (bool, interface{}, error)
-
-	// PreWrite middl1 PostWrite -> middle2 PostWrite -> middleN PostWrite -> do write
 	PreWrite(msg interface{}, conn IOSession) (bool, interface{}, error)
-	// PostWrite do write ->  middleN PreWrite -> middle2 PreWrite -> middle1 PreWrite
 	PostWrite(msg interface{}, conn IOSession) (bool, error)
-
 	Closed(conn IOSession)
 	Connected(conn IOSession)
+	WriteError(err error, conn IOSession)
+	ReadError(err error, conn IOSession) error
 }
 
 // BaseMiddleware defined default reutrn value
@@ -46,4 +44,13 @@ func (sm *BaseMiddleware) Closed(conn IOSession) {
 // Connected default option
 func (sm *BaseMiddleware) Connected(conn IOSession) {
 
+}
+
+// WriteError conn write err
+func (sm *BaseMiddleware) WriteError(err error, conn IOSession) {
+}
+
+// ReadError conn read err
+func (sm *BaseMiddleware) ReadError(err error, conn IOSession) error {
+	return err
 }

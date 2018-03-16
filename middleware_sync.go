@@ -1,7 +1,9 @@
 package goetty
 
 import (
+	"net"
 	"sync"
+	"sync/atomic"
 )
 
 type syncClientMiddleware struct {
@@ -13,22 +15,30 @@ type syncClientMiddleware struct {
 	cached                    *simpleQueue
 	localOffset, serverOffset uint64
 	syncing                   bool
+	maxReadTimeouts           int
+	timeouts                  int
 }
 
 // NewSyncProtocolClientMiddleware return a middleware to process sync protocol
-func NewSyncProtocolClientMiddleware(bizDecoder Decoder, bizEncoder Encoder, writer func(IOSession, interface{}) error) Middleware {
+func NewSyncProtocolClientMiddleware(bizDecoder Decoder, bizEncoder Encoder, writer func(IOSession, interface{}) error, maxReadTimeouts int) Middleware {
 	return &syncClientMiddleware{
-		cached:     newSimpleQueue(),
-		writer:     writer,
-		bizDecoder: bizDecoder,
-		bizEncoder: bizEncoder,
+		cached:          newSimpleQueue(),
+		writer:          writer,
+		bizDecoder:      bizDecoder,
+		bizEncoder:      bizEncoder,
+		maxReadTimeouts: maxReadTimeouts,
 	}
 }
 
 func (sm *syncClientMiddleware) PreWrite(msg interface{}, conn IOSession) (bool, interface{}, error) {
-	// The client side can only send notifySync and notifyRaw msg to the server,
+	// The client side can only send notifySync,notifyRaw,notifyHB msg to the server,
 	// wrap the raw biz msg to notifyRaw
-	if _, ok := msg.(*notifySync); !ok {
+	_, isSync := msg.(*notifySync)
+	if !isSync {
+		_, isSync = msg.(*notifyHB)
+	}
+
+	if !isSync {
 		m := acquireNotifyRaw()
 		err := sm.bizEncoder.Encode(msg, m.buf)
 		if err != nil {
@@ -51,6 +61,8 @@ func (sm *syncClientMiddleware) PreRead(conn IOSession) (bool, interface{}, erro
 }
 
 func (sm *syncClientMiddleware) PostRead(msg interface{}, conn IOSession) (bool, interface{}, error) {
+	sm.timeouts = 0
+
 	// if read notify msg from server, sync msg with server,
 	// the client read option will block until sync complete and read the raw biz msg
 	if nt, ok := msg.(*notify); ok {
@@ -108,8 +120,21 @@ func (sm *syncClientMiddleware) Connected(conn IOSession) {
 	sm.syncing = false
 }
 
+func (sm *syncClientMiddleware) ReadError(err error, conn IOSession) error {
+	if netErr, ok := err.(*net.OpError); ok &&
+		netErr.Timeout() &&
+		sm.timeouts < sm.maxReadTimeouts {
+		sm.timeouts++
+		return sm.writer(conn, &notifyHB{
+			offset: sm.getLocalOffset(),
+		})
+	}
+
+	return err
+}
+
 func (sm *syncClientMiddleware) getLocalOffset() uint64 {
-	return sm.localOffset
+	return atomic.LoadUint64(&sm.localOffset)
 }
 
 func (sm *syncClientMiddleware) getServerOffset() uint64 {
@@ -117,7 +142,7 @@ func (sm *syncClientMiddleware) getServerOffset() uint64 {
 }
 
 func (sm *syncClientMiddleware) resetLocalOffset(offset uint64) {
-	sm.localOffset = offset
+	atomic.StoreUint64(&sm.localOffset, offset)
 }
 
 func (sm *syncClientMiddleware) resetServerOffset(offset uint64) {
@@ -231,6 +256,26 @@ func (sm *syncServerMiddleware) PostRead(msg interface{}, conn IOSession) (bool,
 		}
 
 		return true, biz, nil
+	} else if m, ok := msg.(*notifyHB); ok {
+		sm.RLock()
+		q := sm.offsetQueueMap[conn.ID()]
+		sm.RUnlock()
+
+		if q == nil {
+			panic("offset queue cann't be nil")
+		}
+
+		max := q.GetMaxOffset()
+		if m.offset < max {
+			nt := acquireNotify()
+			nt.offset = q.GetMaxOffset()
+			err := sm.writer(conn, nt)
+			if err != nil {
+				return false, nil, err
+			}
+		}
+
+		return false, nil, nil
 	}
 
 	return true, msg, nil

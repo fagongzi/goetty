@@ -2,6 +2,7 @@ package goetty
 
 import (
 	"errors"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -29,9 +30,6 @@ type connector struct {
 	attrs       map[string]interface{}
 	in          *ByteBuf
 	out         *ByteBuf
-
-	// middleware
-	middlewares []Middleware
 }
 
 // NewConnector create a new connector with opts
@@ -43,12 +41,11 @@ func NewConnector(svrAddr string, opts ...ClientOption) IOSession {
 	sopts.adjust()
 
 	return &connector{
-		addr:        svrAddr,
-		in:          NewByteBuf(sopts.readBufSize),
-		out:         NewByteBuf(sopts.writeBufSize),
-		opts:        sopts,
-		attrs:       make(map[string]interface{}),
-		middlewares: sopts.middlewares,
+		addr:  svrAddr,
+		in:    NewByteBuf(sopts.readBufSize),
+		out:   NewByteBuf(sopts.writeBufSize),
+		opts:  sopts,
+		attrs: make(map[string]interface{}),
 	}
 }
 
@@ -103,7 +100,7 @@ func (c *connector) Connect() (bool, error) {
 	conn.(*net.TCPConn).SetNoDelay(true)
 	conn.(*net.TCPConn).SetLinger(0)
 	c.conn = conn
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		sm.Connected(c)
 	}
 
@@ -138,7 +135,7 @@ func (c *connector) reset() {
 	c.in.Clear()
 	c.out.Clear()
 
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		sm.Closed(c)
 	}
 }
@@ -224,6 +221,10 @@ func (c *connector) Flush() error {
 
 		n, err := c.conn.Write(buf.buf[buf.readerIndex+written : buf.writerIndex])
 		if err != nil {
+			for _, sm := range c.opts.middlewares {
+				sm.WriteError(err, c)
+			}
+
 			c.writeRelease()
 			return err
 		}
@@ -255,7 +256,7 @@ func (c *connector) RemoteIP() string {
 }
 
 func (c *connector) doPreRead() (bool, interface{}, error) {
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		doNext, msg, err := sm.PreRead(c)
 		if err != nil {
 			return false, false, err
@@ -274,7 +275,7 @@ func (c *connector) doPostRead(msg interface{}) (bool, interface{}, error) {
 
 	doNext := true
 	var err error
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		doNext, readedMsg, err = sm.PostRead(readedMsg, c)
 		if err != nil {
 			return false, nil, err
@@ -293,7 +294,7 @@ func (c *connector) doPreWrite(msg interface{}) (bool, interface{}, error) {
 	var doNext bool
 	writeMsg := msg
 
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		doNext, writeMsg, err = sm.PreWrite(writeMsg, c)
 		if err != nil {
 			return false, writeMsg, err
@@ -308,7 +309,7 @@ func (c *connector) doPreWrite(msg interface{}) (bool, interface{}, error) {
 }
 
 func (c *connector) doPostWrite(msg interface{}) error {
-	for _, sm := range c.middlewares {
+	for _, sm := range c.opts.middlewares {
 		doNext, err := sm.PostWrite(msg, c)
 		if err != nil {
 			return err
@@ -352,9 +353,15 @@ func (c *connector) readFromConn(timeout time.Duration) (bool, interface{}, erro
 		c.conn.SetReadDeadline(time.Now().Add(timeout))
 	}
 
-	_, err := c.in.ReadFrom(c.conn)
-
+	_, err := io.Copy(c.in, c.conn)
 	if err != nil {
+		for _, sm := range c.opts.middlewares {
+			oerr := sm.ReadError(err, c)
+			if oerr == nil {
+				return false, nil, nil
+			}
+		}
+
 		return false, nil, err
 	}
 
