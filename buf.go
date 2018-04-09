@@ -387,7 +387,7 @@ func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, e
 		}
 
-		if n < minScale {
+		if m < minScale {
 			return n, e
 		}
 	}
