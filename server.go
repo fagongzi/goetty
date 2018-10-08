@@ -1,6 +1,7 @@
 package goetty
 
 import (
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -164,6 +165,12 @@ func (s *Server) Start(loopFn func(IOSession) error) error {
 		s.addSession(session)
 
 		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					log.Printf("goetty: connection painc %+v", err)
+				}
+			}()
+
 			loopFn(session)
 			session.Close()
 			s.deleteSession(session)
