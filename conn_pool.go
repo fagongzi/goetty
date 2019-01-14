@@ -270,6 +270,7 @@ func (pool *AddressBasedPool) createConn(addr string) IOSession {
 	return conn
 }
 
+// ForEach do foreach session
 func (pool *AddressBasedPool) ForEach(visitor func(addr string, conn IOSession)) {
 	pool.Lock()
 	for addr, conn := range pool.conns {
