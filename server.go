@@ -3,6 +3,7 @@ package goetty
 import (
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -167,7 +168,12 @@ func (s *Server) Start(loopFn func(IOSession) error) error {
 		go func() {
 			defer func() {
 				if err := recover(); err != nil {
-					log.Printf("goetty: connection painc %+v", err)
+					const size = 64 << 10
+					rBuf := make([]byte, size)
+					rBuf = rBuf[:runtime.Stack(rBuf, false)]
+					log.Printf("goetty: connection painc %+v, stack:\n%s",
+						err,
+						rBuf)
 				}
 			}()
 
