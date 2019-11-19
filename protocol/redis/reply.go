@@ -104,7 +104,8 @@ func WriteFVPairArray(fvs [][]byte, buf *goetty.ByteBuf) {
 		buf.Write(goetty.StringToSlice(strconv.Itoa(len(fvs) / 2)))
 		buf.Write(Delims)
 
-		for i := 0; i < len(fvs); i++ {
+		n := len(fvs) / 2
+		for i := 0; i < n; i++ {
 			WriteBulk(fvs[2*i], buf)
 			WriteBulk(fvs[2*i+1], buf)
 		}
@@ -118,21 +119,14 @@ func WriteScorePairArray(membersAndScores [][]byte, withScores bool, buf *goetty
 		buf.Write(NullArray)
 		buf.Write(Delims)
 	} else {
-		if withScores {
-			buf.Write(goetty.StringToSlice(strconv.Itoa(len(membersAndScores) / 2)))
-			buf.Write(Delims)
-		} else {
-			buf.Write(goetty.StringToSlice(strconv.Itoa(len(membersAndScores))))
-			buf.Write(Delims)
+		buf.Write(goetty.StringToSlice(strconv.Itoa(len(membersAndScores) / 2)))
+		buf.Write(Delims)
 
-		}
-
-		for i := 0; i < len(membersAndScores); i++ {
+		n := len(membersAndScores) / 2
+		for i := 0; i < n; i++ {
+			WriteBulk(membersAndScores[2*i], buf)
 			if withScores {
-				WriteBulk(membersAndScores[2*i], buf)
 				WriteBulk(membersAndScores[2*i+1], buf)
-			} else {
-				WriteBulk(membersAndScores[i], buf)
 			}
 		}
 	}
