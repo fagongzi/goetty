@@ -94,6 +94,6 @@ func (encoder *IntLengthFieldBasedEncoder) Encode(data interface{}, out *ByteBuf
 		return err
 	}
 
-	Int2BytesTo(out.Readable()-4, out.RawBuf()[idx:])
+	Int2BytesTo(out.GetWriteIndex()-idx-4, out.RawBuf()[idx:])
 	return nil
 }

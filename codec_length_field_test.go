@@ -13,7 +13,13 @@ func TestLengthBasedEncoder(t *testing.T) {
 		return
 	}
 
-	if 9 != buf.Readable() {
+	err = e.Encode([]byte("world"), buf)
+	if err != nil {
+		t.Errorf("TestLengthBasedEncoder failed with %+v", err)
+		return
+	}
+
+	if 18 != buf.Readable() {
 		t.Errorf("TestLengthBasedEncoder failed with unexpect size %d",
 			buf.Readable())
 		return
@@ -26,8 +32,22 @@ func TestLengthBasedEncoder(t *testing.T) {
 		return
 	}
 
-	_, v, _ := buf.ReadAll()
+	_, v, _ := buf.ReadBytes(n)
 	if string(v) != "hello" {
+		t.Errorf("TestLengthBasedEncoder failed with unexpect value %s",
+			string(v))
+		return
+	}
+
+	n, _ = buf.ReadInt()
+	if 5 != n {
+		t.Errorf("TestLengthBasedEncoder failed with unexpect length size %d",
+			n)
+		return
+	}
+
+	_, v, _ = buf.ReadBytes(n)
+	if string(v) != "world" {
 		t.Errorf("TestLengthBasedEncoder failed with unexpect value %s",
 			string(v))
 		return
