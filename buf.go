@@ -162,7 +162,7 @@ func WrapBytes(data []byte) *ByteBuf {
 		capacity:    cap(data),
 		buf:         data,
 		readerIndex: 0,
-		writerIndex: 0,
+		writerIndex: len(data),
 		pool:        getDefaultMP(),
 	}
 }
