@@ -167,6 +167,14 @@ func WrapBytes(data []byte) *ByteBuf {
 	}
 }
 
+// Wrap wrap a bytes
+func (b *ByteBuf) Wrap(data []byte) {
+	b.Clear()
+	b.Release()
+	b.buf = data
+	b.writerIndex = len(data)
+}
+
 // RawBuf get the raw byte array
 func (b *ByteBuf) RawBuf() []byte {
 	return b.buf
