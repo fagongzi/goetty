@@ -558,6 +558,11 @@ func (b *ByteBuf) WriteByteBuf(from *ByteBuf) error {
 func (b *ByteBuf) Expansion(n int) {
 	if free := b.Writeable(); free < n {
 		current := b.Capacity()
+		step := current / 2
+		if step < minScale {
+			step = minScale
+		}
+
 		size := current + (n - free)
 		target := current
 		for {
@@ -565,7 +570,7 @@ func (b *ByteBuf) Expansion(n int) {
 				break
 			}
 
-			target += current / 2
+			target += step
 		}
 
 		newBuf := b.pool.Alloc(target)
