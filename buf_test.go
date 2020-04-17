@@ -84,3 +84,10 @@ func TestWrap(t *testing.T) {
 		return
 	}
 }
+
+func TestExpansion(t *testing.T) {
+	buf := NewByteBuf(256)
+	data := make([]byte, 257, 257)
+	buf.Write(data)
+	EqualNow(t, cap(buf.buf), 512)
+}
