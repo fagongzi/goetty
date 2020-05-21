@@ -85,6 +85,27 @@ func TestWrap(t *testing.T) {
 	}
 }
 
+func TestSlice(t *testing.T) {
+	buf := NewByteBuf(32)
+	buf.Write([]byte("hello"))
+	s := buf.Slice(0, 5)
+	if string(s.Data()) != "hello" {
+		t.Errorf("TestSlice failed, expect hello, but %+v", string(s.Data()))
+		return
+	}
+}
+
+func TestWrittenDataAfterMark(t *testing.T) {
+	buf := NewByteBuf(32)
+	buf.MarkWrite()
+	buf.Write([]byte("hello"))
+	s := buf.WrittenDataAfterMark()
+	if string(s.Data()) != "hello" {
+		t.Errorf("TestWrittenDataAfterMark failed, expect hello, but %+v", string(s.Data()))
+		return
+	}
+}
+
 func TestExpansion(t *testing.T) {
 	buf := NewByteBuf(256)
 	data := make([]byte, 257, 257)
