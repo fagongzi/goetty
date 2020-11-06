@@ -196,6 +196,9 @@ func (b *ByteBuf) Clear() {
 	b.readerIndex = 0
 	b.writerIndex = 0
 	b.markedIndex = 0
+
+	b.pool.Free(b.buf)
+	b.buf = b.pool.Alloc(b.capacity)
 }
 
 // Release release buf
