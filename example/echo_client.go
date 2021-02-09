@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/codec/simple"
 )
 
 // EchoClient echo client
@@ -19,10 +20,12 @@ func NewEchoClient(serverAddr string) (*EchoClient, error) {
 		serverAddr: serverAddr,
 	}
 
+	decoder, encoder := simple.NewStringCodec()
+
 	c.conn = goetty.NewConnector(serverAddr,
 		goetty.WithClientConnectTimeout(time.Second*3),
-		goetty.WithClientDecoder(&StringDecoder{}),
-		goetty.WithClientEncoder(&StringEncoder{}),
+		goetty.WithClientDecoder(decoder),
+		goetty.WithClientEncoder(encoder),
 		// if you want to send heartbeat to server, you can set conf as below, otherwise not set
 		goetty.WithClientWriteTimeoutHandler(time.Second*3, c.writeHeartbeat, goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))))
 	_, err := c.conn.Connect()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/codec/simple"
 )
 
 // EchoServer echo server
@@ -14,11 +15,12 @@ type EchoServer struct {
 
 // NewEchoServer create new server
 func NewEchoServer(addr string) *EchoServer {
+	decoder, encoder := simple.NewStringCodec()
 	return &EchoServer{
 		addr: addr,
 		server: goetty.NewServer(addr,
-			goetty.WithServerDecoder(goetty.NewIntLengthFieldBasedDecoder(&StringDecoder{})),
-			goetty.WithServerEncoder(&StringEncoder{})),
+			goetty.WithServerDecoder(decoder),
+			goetty.WithServerEncoder(encoder)),
 	}
 }
 
