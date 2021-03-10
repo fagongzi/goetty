@@ -7,51 +7,53 @@ import (
 
 	"fmt"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/util/hack"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParserCommandReplyForStatus(t *testing.T) {
 	status := "OK"
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	WriteStatus([]byte(status), buf)
-	checkStatusReply(buf, t, status)
+	checkStatusReply(t, buf, status)
 }
 
 func TestParserCommandReplyForStatusNotComplete(t *testing.T) {
 	status := "OK"
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	buf.WriteByte('+')
 	buf.Write([]byte(status))
 
-	checkNotComplete(buf, t)
+	checkNotComplete(t, buf)
 
 	buf.Write(Delims)
 
-	checkStatusReply(buf, t, status)
+	checkStatusReply(t, buf, status)
 }
 
 func TestParserCommandReplyForError(t *testing.T) {
 	errInfo := "this is a error"
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	WriteError([]byte(errInfo), buf)
 
-	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
+	checkErrorReply(t, buf, fmt.Sprintf(" %s", errInfo))
 }
 
 func TestParserCommandReplyForErrorNotComplete(t *testing.T) {
 	errInfo := "this is a error"
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	buf.WriteByte('-')
 	buf.WriteByte(' ')
 	buf.Write([]byte(errInfo))
-	checkNotComplete(buf, t)
+	checkNotComplete(t, buf)
 
 	buf.Write(Delims)
-	checkErrorReply(buf, t, fmt.Sprintf(" %s", errInfo))
+	checkErrorReply(t, buf, fmt.Sprintf(" %s", errInfo))
 }
 
 func TestParserCommandReplyForInteger(t *testing.T) {
@@ -59,10 +61,10 @@ func TestParserCommandReplyForInteger(t *testing.T) {
 	valueNumber = 100
 	value := fmt.Sprintf("%d", valueNumber)
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	WriteInteger(valueNumber, buf)
 
-	checkIntegerReply(buf, t, value)
+	checkIntegerReply(t, buf, value)
 }
 
 func TestParserCommandReplyForNotComplete(t *testing.T) {
@@ -70,48 +72,48 @@ func TestParserCommandReplyForNotComplete(t *testing.T) {
 	valueNumber = 100
 	value := fmt.Sprintf("%d", valueNumber)
 
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	buf.WriteByte(':')
 	buf.Write([]byte(value))
-	checkNotComplete(buf, t)
+	checkNotComplete(t, buf)
 
 	buf.Write(Delims)
-	checkIntegerReply(buf, t, value)
+	checkIntegerReply(t, buf, value)
 }
 
 func TestParserCommandReplyForBulk(t *testing.T) {
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	WriteBulk(nil, buf)
-	checkBulkNilReply(buf, t)
+	checkBulkNilReply(t, buf)
 
 	data := "this is a bulk data"
 	WriteBulk([]byte(data), buf)
-	checkBulkReply(buf, t, data)
+	checkBulkReply(t, buf, data)
 }
 
 func TestParserCommandReplyForBulkNotComplete(t *testing.T) {
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	buf.WriteByte('$')
 	buf.Write(NullBulk)
-	checkNotComplete(buf, t)
+	checkNotComplete(t, buf)
 
 	buf.Write(Delims)
-	checkBulkNilReply(buf, t)
+	checkBulkNilReply(t, buf)
 
 	data := "this is a bulk data"
 	buf.WriteByte('$')
-	buf.Write(goetty.StringToSlice(strconv.Itoa(len(data))))
+	buf.Write(hack.StringToSlice(strconv.Itoa(len(data))))
 	buf.Write(Delims)
 	buf.Write([]byte(data))
 
-	checkNotComplete(buf, t)
+	checkNotComplete(t, buf)
 
 	buf.Write(Delims)
-	checkBulkReply(buf, t, data)
+	checkBulkReply(t, buf, data)
 }
 
 func TestParserCommandReplyForArray(t *testing.T) {
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	status := "OK"
 	errInfo := errors.New("this is a error")
 	var integer int64
@@ -121,11 +123,11 @@ func TestParserCommandReplyForArray(t *testing.T) {
 	lst := []interface{}{status, errInfo, integer, bulk}
 	WriteArray(lst, buf)
 
-	checkArrayReply(buf, t, len(lst))
+	checkArrayReply(t, buf, len(lst))
 }
 
 func TestParserCommandReplyForArrayNotComplete(t *testing.T) {
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	status := "OK"
 	errInfo := errors.New("this is a error")
 	var integer int64
@@ -135,7 +137,7 @@ func TestParserCommandReplyForArrayNotComplete(t *testing.T) {
 	lst := []interface{}{status, errInfo, integer, bulk}
 
 	buf.WriteByte('*')
-	buf.Write(goetty.StringToSlice(strconv.Itoa(len(lst))))
+	buf.Write(hack.StringToSlice(strconv.Itoa(len(lst))))
 	buf.Write(Delims)
 	for i := 0; i < len(lst); i++ {
 		switch v := lst[i].(type) {
@@ -150,152 +152,91 @@ func TestParserCommandReplyForArrayNotComplete(t *testing.T) {
 		case int64:
 			WriteInteger(v, buf)
 		case string:
-			WriteStatus(goetty.StringToSlice(v), buf)
+			WriteStatus(hack.StringToSlice(v), buf)
 		case error:
-			WriteError(goetty.StringToSlice(v.Error()), buf)
+			WriteError(hack.StringToSlice(v.Error()), buf)
 		default:
 			panic(fmt.Sprintf("invalid array type %T %v", lst[i], v))
 		}
 
 		if i < len(lst)-1 {
-			checkNotComplete(buf, t)
+			checkNotComplete(t, buf)
 		}
 	}
 
-	checkArrayReply(buf, t, len(lst))
+	checkArrayReply(t, buf, len(lst))
 }
 
-func checkNotComplete(buf *goetty.ByteBuf, t *testing.T) {
+func checkNotComplete(t *testing.T, buf *buf.ByteBuf) {
 	complete, _, err := readCommandReply(buf)
-	if err != nil {
-		t.Failed()
-	}
+	assert.NoError(t, err)
 
-	if complete {
-		t.Failed()
-	}
+	assert.False(t, complete)
 }
 
-func checkErrorReply(buf *goetty.ByteBuf, t *testing.T, info string) {
+func checkErrorReply(t *testing.T, buf *buf.ByteBuf, info string) {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	rsp, ok := value.(ErrResp)
-	if !ok {
-		t.Error("type mis match")
-	}
-
-	if string(rsp) != info {
-		t.Error("value mis match")
-	}
+	assert.True(t, ok)
+	assert.Equal(t, string(rsp), info)
 }
 
-func checkStatusReply(buf *goetty.ByteBuf, t *testing.T, info string) {
+func checkStatusReply(t *testing.T, buf *buf.ByteBuf, info string) {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	rsp, ok := value.(StatusResp)
-	if !ok {
-		t.Error("type mis match")
-	}
-
-	if string(rsp) != info {
-		t.Error("value mis match")
-	}
+	assert.True(t, ok)
+	assert.Equal(t, string(rsp), info)
 }
 
-func checkIntegerReply(buf *goetty.ByteBuf, t *testing.T, num string) {
+func checkIntegerReply(t *testing.T, buf *buf.ByteBuf, num string) {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	rsp, ok := value.(IntegerResp)
-	if !ok {
-		t.Error("type mis match")
-	}
-
-	if string(rsp) != num {
-		t.Error("value mis match")
-	}
+	assert.True(t, ok)
+	assert.Equal(t, string(rsp), num)
 }
 
-func checkArrayReply(buf *goetty.ByteBuf, t *testing.T, num int) []interface{} {
+func checkArrayReply(t *testing.T, buf *buf.ByteBuf, num int) []interface{} {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	rsps, ok := value.([]interface{})
-	if !ok {
-		t.Error("type mis match")
-	}
-
-	if len(rsps) != num {
-		t.Error("values mis match")
-	}
+	assert.True(t, ok)
+	assert.Equal(t, len(rsps), num)
 
 	return rsps
 }
 
-func checkBulkNilReply(buf *goetty.ByteBuf, t *testing.T) {
+func checkBulkNilReply(t *testing.T, buf *buf.ByteBuf) {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	_, ok := value.(NullBulkResp)
-	if !ok {
-		t.Error("type mis match")
-	}
+	assert.True(t, ok)
 }
 
-func checkBulkReply(buf *goetty.ByteBuf, t *testing.T, data string) {
+func checkBulkReply(t *testing.T, buf *buf.ByteBuf, data string) {
 	complete, value, err := readCommandReply(buf)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !complete {
-		t.Error("not complete")
-	}
+	assert.NoError(t, err)
+	assert.True(t, complete)
 
 	rsp, ok := value.(BulkResp)
-	if !ok {
-		t.Error("type mis match")
-	}
-
-	if string(rsp) != data {
-		t.Error("value mis match")
-	}
+	assert.True(t, ok)
+	assert.Equal(t, string(rsp), data)
 }
 
 func TestReadLine(t *testing.T) {
-	buf := goetty.NewByteBuf(1024)
+	buf := buf.NewByteBuf(1024)
 	buf.Write([]byte("*3\r\n"))
 
 	_, _, err := readLine(buf)

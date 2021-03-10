@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/util/hack"
 )
 
 // Command redis command
@@ -17,7 +17,7 @@ func (c Command) Cmd() []byte {
 
 // CmdString returns redis command use lower string
 func (c Command) CmdString() string {
-	return strings.ToLower(goetty.SliceToString(c[0]))
+	return strings.ToLower(hack.SliceToString(c[0]))
 }
 
 // Args returns redis command args

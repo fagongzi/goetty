@@ -3,15 +3,15 @@ package simple
 import (
 	"testing"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBytesCodec(t *testing.T) {
 	v := []byte("hello world")
-	buf := goetty.NewByteBuf(32)
+	buf := buf.NewByteBuf(32)
 
-	decoder, encoder := NewBytesCodec()
+	encoder, decoder := NewBytesCodec()
 
 	assert.NoError(t, encoder.Encode(v, buf), "TestBytesCodec failed")
 

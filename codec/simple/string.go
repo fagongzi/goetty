@@ -1,20 +1,21 @@
 package simple
 
 import (
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/goetty/codec"
+	"github.com/fagongzi/goetty/codec/length"
 )
 
 // NewStringCodec returns a string codec
-func NewStringCodec() (goetty.Decoder, goetty.Encoder) {
+func NewStringCodec() (codec.Encoder, codec.Decoder) {
 	c := &stringCodec{}
-	return goetty.NewIntLengthFieldBasedDecoder(c),
-		goetty.NewIntLengthFieldBasedEncoder(c)
+	return length.New(c, c)
 }
 
 type stringCodec struct {
 }
 
-func (c stringCodec) Decode(in *goetty.ByteBuf) (bool, interface{}, error) {
+func (c stringCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
 	_, data, err := in.ReadMarkedBytes()
 
 	if err != nil {
@@ -24,7 +25,7 @@ func (c stringCodec) Decode(in *goetty.ByteBuf) (bool, interface{}, error) {
 	return true, string(data), nil
 }
 
-func (c stringCodec) Encode(data interface{}, out *goetty.ByteBuf) error {
+func (c stringCodec) Encode(data interface{}, out *buf.ByteBuf) error {
 	msg, _ := data.(string)
 	bytes := []byte(msg)
 	out.Write(bytes)

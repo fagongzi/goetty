@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/util/hack"
 )
 
 const (
@@ -30,7 +31,7 @@ var (
 )
 
 // ReadCommand returns redis command from buffer
-func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
+func ReadCommand(in *buf.ByteBuf) (bool, Command, error) {
 	for {
 		// remember the begin read index,
 		// if we found has no enough data, we will resume this read index,
@@ -106,7 +107,7 @@ func ReadCommand(in *goetty.ByteBuf) (bool, Command, error) {
 	}
 }
 
-func readCommandReply(in *goetty.ByteBuf) (bool, interface{}, error) {
+func readCommandReply(in *buf.ByteBuf) (bool, interface{}, error) {
 	for {
 		// remember the begin read index,
 		// if we found has no enough data, we will resume this read index,
@@ -188,7 +189,7 @@ func readCommandReply(in *goetty.ByteBuf) (bool, interface{}, error) {
 	}
 }
 
-func readStringInt(in *goetty.ByteBuf) (int, int, error) {
+func readStringInt(in *buf.ByteBuf) (int, int, error) {
 	count, line, err := readLine(in)
 	if count == 0 && err == nil {
 		return 0, 0, nil
@@ -205,7 +206,7 @@ func readStringInt(in *goetty.ByteBuf) (int, int, error) {
 	return len(line), value, nil
 }
 
-func readLine(in *goetty.ByteBuf) (int, []byte, error) {
+func readLine(in *buf.ByteBuf) (int, []byte, error) {
 	offset := 0
 	size := in.Readable()
 
@@ -231,5 +232,5 @@ func parseInteger(data []byte) (int, error) {
 		return -1, nil
 	}
 
-	return strconv.Atoi(goetty.SliceToString(data))
+	return strconv.Atoi(hack.SliceToString(data))
 }

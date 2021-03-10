@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/util/hack"
 )
 
 // WriteError write error resp
-func WriteError(err []byte, buf *goetty.ByteBuf) {
+func WriteError(err []byte, buf *buf.ByteBuf) {
 	buf.WriteByte('-')
 	if err != nil {
 		buf.WriteByte(' ')
@@ -18,26 +19,26 @@ func WriteError(err []byte, buf *goetty.ByteBuf) {
 }
 
 // WriteStatus write status resp
-func WriteStatus(status []byte, buf *goetty.ByteBuf) {
+func WriteStatus(status []byte, buf *buf.ByteBuf) {
 	buf.WriteByte('+')
 	buf.Write(status)
 	buf.Write(Delims)
 }
 
 // WriteInteger write integer resp
-func WriteInteger(n int64, buf *goetty.ByteBuf) {
+func WriteInteger(n int64, buf *buf.ByteBuf) {
 	buf.WriteByte(':')
-	buf.Write(goetty.FormatInt64ToBytes(n))
+	buf.Write(strconv.AppendInt(nil, n, 10))
 	buf.Write(Delims)
 }
 
 // WriteBulk write bulk resp
-func WriteBulk(b []byte, buf *goetty.ByteBuf) {
+func WriteBulk(b []byte, buf *buf.ByteBuf) {
 	buf.WriteByte('$')
 	if len(b) == 0 {
 		buf.Write(NullBulk)
 	} else {
-		buf.Write(goetty.StringToSlice(strconv.Itoa(len(b))))
+		buf.Write(hack.StringToSlice(strconv.Itoa(len(b))))
 		buf.Write(Delims)
 		buf.Write(b)
 	}
@@ -46,13 +47,13 @@ func WriteBulk(b []byte, buf *goetty.ByteBuf) {
 }
 
 // WriteArray write array resp
-func WriteArray(lst []interface{}, buf *goetty.ByteBuf) {
+func WriteArray(lst []interface{}, buf *buf.ByteBuf) {
 	buf.WriteByte('*')
 	if len(lst) == 0 {
 		buf.Write(NullArray)
 		buf.Write(Delims)
 	} else {
-		buf.Write(goetty.StringToSlice(strconv.Itoa(len(lst))))
+		buf.Write(hack.StringToSlice(strconv.Itoa(len(lst))))
 		buf.Write(Delims)
 
 		for i := 0; i < len(lst); i++ {
@@ -68,9 +69,9 @@ func WriteArray(lst []interface{}, buf *goetty.ByteBuf) {
 			case int64:
 				WriteInteger(v, buf)
 			case string:
-				WriteStatus(goetty.StringToSlice(v), buf)
+				WriteStatus(hack.StringToSlice(v), buf)
 			case error:
-				WriteError(goetty.StringToSlice(v.Error()), buf)
+				WriteError(hack.StringToSlice(v.Error()), buf)
 			default:
 				panic(fmt.Sprintf("invalid array type %T %v", lst[i], v))
 			}
@@ -79,13 +80,13 @@ func WriteArray(lst []interface{}, buf *goetty.ByteBuf) {
 }
 
 // WriteSliceArray write slice array resp
-func WriteSliceArray(lst [][]byte, buf *goetty.ByteBuf) {
+func WriteSliceArray(lst [][]byte, buf *buf.ByteBuf) {
 	buf.WriteByte('*')
 	if len(lst) == 0 {
 		buf.Write(NullArray)
 		buf.Write(Delims)
 	} else {
-		buf.Write(goetty.StringToSlice(strconv.Itoa(len(lst))))
+		buf.Write(hack.StringToSlice(strconv.Itoa(len(lst))))
 		buf.Write(Delims)
 
 		for i := 0; i < len(lst); i++ {
@@ -95,13 +96,13 @@ func WriteSliceArray(lst [][]byte, buf *goetty.ByteBuf) {
 }
 
 // WriteFVPairArray write field-value pair array resp
-func WriteFVPairArray(fvs [][]byte, buf *goetty.ByteBuf) {
+func WriteFVPairArray(fvs [][]byte, buf *buf.ByteBuf) {
 	buf.WriteByte('*')
 	if len(fvs) == 0 {
 		buf.Write(NullArray)
 		buf.Write(Delims)
 	} else {
-		buf.Write(goetty.StringToSlice(strconv.Itoa(len(fvs) / 2)))
+		buf.Write(hack.StringToSlice(strconv.Itoa(len(fvs) / 2)))
 		buf.Write(Delims)
 
 		n := len(fvs) / 2
@@ -113,13 +114,13 @@ func WriteFVPairArray(fvs [][]byte, buf *goetty.ByteBuf) {
 }
 
 // WriteScorePairArray write score-member pair array resp
-func WriteScorePairArray(membersAndScores [][]byte, withScores bool, buf *goetty.ByteBuf) {
+func WriteScorePairArray(membersAndScores [][]byte, withScores bool, buf *buf.ByteBuf) {
 	buf.WriteByte('*')
 	if len(membersAndScores) == 0 {
 		buf.Write(NullArray)
 		buf.Write(Delims)
 	} else {
-		buf.Write(goetty.StringToSlice(strconv.Itoa(len(membersAndScores) / 2)))
+		buf.Write(hack.StringToSlice(strconv.Itoa(len(membersAndScores) / 2)))
 		buf.Write(Delims)
 
 		n := len(membersAndScores) / 2

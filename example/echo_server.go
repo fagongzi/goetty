@@ -1,7 +1,7 @@
 package example
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/fagongzi/goetty"
 	"github.com/fagongzi/goetty/codec/simple"
@@ -9,39 +9,40 @@ import (
 
 // EchoServer echo server
 type EchoServer struct {
-	addr   string
-	server *goetty.Server
+	addr string
+	app  goetty.NetApplication
 }
 
 // NewEchoServer create new server
 func NewEchoServer(addr string) *EchoServer {
-	decoder, encoder := simple.NewStringCodec()
+	svr := &EchoServer{}
+	encoder, decoder := simple.NewStringCodec()
+	app, err := goetty.NewTCPApplication(addr, svr.handle,
+		goetty.WithAppSessionOptions(goetty.WithCodec(encoder, decoder)))
+	if err != nil {
+		log.Panicf("start server failed with %+v", err)
+	}
+
 	return &EchoServer{
 		addr: addr,
-		server: goetty.NewServer(addr,
-			goetty.WithServerDecoder(decoder),
-			goetty.WithServerEncoder(encoder)),
+		app:  app,
 	}
 }
 
 // Start start
-func (e *EchoServer) Start() error {
-	return e.server.Start(e.doConnection)
+func (s *EchoServer) Start() error {
+	return s.Start()
 }
 
-func (e *EchoServer) doConnection(session goetty.IOSession) error {
-	fmt.Printf("A new connection from <%s>", session.RemoteAddr())
+// Stop stop
+func (s *EchoServer) Stop() error {
+	return s.Stop()
+}
 
-	// start loop for read msg from this connection
-	for {
-		msg, err := session.Read() // if you want set a read deadline, you can use 'session.ReadTimeout(timeout)'
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("receive a msg<%s> from <%s>", msg, session.RemoteAddr())
-
-		// echo msg back
-		session.Write(msg)
-	}
+func (s *EchoServer) handle(session goetty.IOSession, msg interface{}, received uint64) error {
+	log.Printf("received %+v from %s, already received %d msgs",
+		msg,
+		session.RemoteAddr(),
+		received)
+	return session.WriteAndFlush(msg)
 }

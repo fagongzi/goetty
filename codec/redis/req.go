@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/buf"
 )
 
 const (
@@ -25,7 +26,7 @@ func WriteCommand(conn goetty.IOSession, cmd string, args ...interface{}) error 
 	return doWriteCommand(cmd, lenV, numV, conn.OutBuf(), args...)
 }
 
-func doWriteCommand(cmd string, lenScratch, numScratch []byte, buf *goetty.ByteBuf, args ...interface{}) (err error) {
+func doWriteCommand(cmd string, lenScratch, numScratch []byte, buf *buf.ByteBuf, args ...interface{}) (err error) {
 	writeLen('*', 1+len(args), lenScratch, buf)
 	err = writeString(cmd, lenScratch, buf)
 
@@ -57,7 +58,7 @@ func doWriteCommand(cmd string, lenScratch, numScratch []byte, buf *goetty.ByteB
 	return err
 }
 
-func writeLen(prefix byte, n int, lenScratch []byte, buf *goetty.ByteBuf) error {
+func writeLen(prefix byte, n int, lenScratch []byte, buf *buf.ByteBuf) error {
 	lenScratch[len(lenScratch)-1] = '\n'
 	lenScratch[len(lenScratch)-2] = '\r'
 	i := len(lenScratch) - 3
@@ -75,7 +76,7 @@ func writeLen(prefix byte, n int, lenScratch []byte, buf *goetty.ByteBuf) error 
 	return err
 }
 
-func writeString(s string, lenScratch []byte, buf *goetty.ByteBuf) error {
+func writeString(s string, lenScratch []byte, buf *buf.ByteBuf) error {
 	writeLen('$', len(s), lenScratch, buf)
 
 	buf.Write([]byte(s))
@@ -83,17 +84,17 @@ func writeString(s string, lenScratch []byte, buf *goetty.ByteBuf) error {
 	return err
 }
 
-func writeBytes(p []byte, lenScratch []byte, buf *goetty.ByteBuf) error {
+func writeBytes(p []byte, lenScratch []byte, buf *buf.ByteBuf) error {
 	writeLen('$', len(p), lenScratch, buf)
 	buf.Write(p)
 	_, err := buf.Write(Delims)
 	return err
 }
 
-func writeInt64(n int64, lenScratch, numScratch []byte, buf *goetty.ByteBuf) error {
+func writeInt64(n int64, lenScratch, numScratch []byte, buf *buf.ByteBuf) error {
 	return writeBytes(strconv.AppendInt(numScratch[:0], n, 10), lenScratch, buf)
 }
 
-func writeFloat64(n float64, lenScratch, numScratch []byte, buf *goetty.ByteBuf) error {
+func writeFloat64(n float64, lenScratch, numScratch []byte, buf *buf.ByteBuf) error {
 	return writeBytes(strconv.AppendFloat(numScratch[:0], n, 'g', -1, 64), lenScratch, buf)
 }
