@@ -74,4 +74,13 @@ func TestAsyncWrite(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "hello", reply)
 
+	assert.NoError(t, client.Close())
+	ok, err = client.Connect(testAddr, time.Second)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assert.True(t, client.Connected())
+	assert.NoError(t, client.WriteAndFlush("hello"))
+	reply, err = client.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "hello", reply)
 }

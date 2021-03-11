@@ -88,10 +88,6 @@ func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
 		bio.disableConnect = true
 	}
 
-	if bio.opts.asyncWrite {
-		bio.asyncQueue = queue.New(64)
-		go bio.writeLoop()
-	}
 	return bio
 }
 
@@ -228,8 +224,7 @@ func (bio *baseIO) Write(msg interface{}) error {
 // WriteAndFlush write a msg to server
 func (bio *baseIO) WriteAndFlush(msg interface{}) error {
 	if bio.opts.asyncWrite {
-		bio.asyncQueue.Put(msg)
-		return nil
+		return bio.asyncQueue.Put(msg)
 	}
 	return bio.write(msg, true)
 }
@@ -316,12 +311,12 @@ func (bio *baseIO) write(msg interface{}, flush bool) error {
 	return nil
 }
 
-func (bio *baseIO) writeLoop() {
-	defer bio.asyncQueue.Dispose()
+func (bio *baseIO) writeLoop(q queue.Queue) {
+	defer q.Dispose()
 
 	items := make([]interface{}, bio.opts.asyncFlushBatch, bio.opts.asyncFlushBatch)
 	for {
-		n, err := bio.asyncQueue.Get(bio.opts.asyncFlushBatch, items)
+		n, err := q.Get(bio.opts.asyncFlushBatch, items)
 		if nil != err {
 			bio.opts.logger.Fatalf("BUG: can not failed")
 		}
@@ -383,5 +378,9 @@ func (bio *baseIO) initConn(conn net.Conn) {
 	}
 
 	bio.opts.connOptionFunc(bio.conn)
+	if bio.opts.asyncWrite {
+		bio.asyncQueue = queue.New(64)
+		go bio.writeLoop(bio.asyncQueue)
+	}
 	atomic.StoreInt32(&bio.state, stateConnected)
 }
