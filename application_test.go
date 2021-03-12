@@ -2,6 +2,7 @@ package goetty
 
 import (
 	"testing"
+	"time"
 
 	"github.com/fagongzi/goetty/codec/simple"
 	"github.com/stretchr/testify/assert"
@@ -13,10 +14,42 @@ var (
 
 func TestStart(t *testing.T) {
 	app := newTestTCPApp(t, nil)
+	defer app.Stop()
+
 	assert.NoError(t, app.Start())
 	assert.NoError(t, app.Start())
+}
+
+func TestStop(t *testing.T) {
+	app := newTestTCPApp(t, nil).(*server)
+	assert.NoError(t, app.Start())
+	n := 200
+	for i := 0; i < n; i++ {
+		session := newTestIOSession(t)
+		ok, err := session.Connect(testAddr, time.Second)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+	}
+	time.Sleep(time.Second * 1)
+
+	var sessions []IOSession
+	for _, m := range app.sessions {
+		for _, s := range m.sessions {
+			sessions = append(sessions, s)
+		}
+	}
+
+	assert.Equal(t, n, len(sessions))
 	assert.NoError(t, app.Stop())
-	assert.NoError(t, app.Stop())
+	time.Sleep(time.Second * 1)
+	total := 0
+	for _, m := range app.sessions {
+		total += len(m.sessions)
+	}
+	for _, s := range sessions {
+		assert.False(t, s.Connected())
+	}
+	assert.Equal(t, 0, total)
 }
 
 func newTestTCPApp(t *testing.T, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) NetApplication {
