@@ -1,4 +1,4 @@
-package goetty
+package pool
 
 import (
 	"errors"
