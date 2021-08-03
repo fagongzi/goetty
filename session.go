@@ -30,19 +30,33 @@ var (
 
 // IOSession session
 type IOSession interface {
+	// ID sessino id
 	ID() uint64
+	// Connect connect to address, only used at client-side
 	Connect(addr string, timeout time.Duration) (bool, error)
+	// Close close the session
 	Close() error
+	// Connected returns true if connection is ok
 	Connected() bool
+	// Read read packet from connection
 	Read() (interface{}, error)
+	// Write write packet to connection out buffer
 	Write(msg interface{}) error
+	// WriteAndFlush write packet to connection out buffer and flush the out buffer
 	WriteAndFlush(msg interface{}) error
+	// Flush flush the out buffer
 	Flush() error
+	// InBuf connection read buffer
 	InBuf() *buf.ByteBuf
+	// OutBuf connection out buffer
 	OutBuf() *buf.ByteBuf
+	// SetAttr set attr
 	SetAttr(key string, value interface{})
+	// GetAttr read attr
 	GetAttr(key string) interface{}
+	// RemoteAddr returns remote address, include ip and port
 	RemoteAddr() string
+	// RemoteIP returns remote address, only ip
 	RemoteIP() string
 }
 
@@ -201,15 +215,13 @@ func (bio *baseIO) Read() (interface{}, error) {
 			}
 
 			if complete {
-				break
+				if bio.in.Readable() == 0 {
+					bio.in.Clear()
+				}
+
+				return msg, nil
 			}
 		}
-
-		if bio.in.Readable() == 0 {
-			bio.in.Clear()
-		}
-
-		return msg, nil
 	}
 }
 
@@ -245,7 +257,7 @@ func (bio *baseIO) Flush() error {
 			break
 		}
 
-		if 0 != bio.opts.writeTimeout {
+		if bio.opts.writeTimeout != 0 {
 			bio.conn.SetWriteDeadline(time.Now().Add(bio.opts.writeTimeout))
 		} else {
 			bio.conn.SetWriteDeadline(time.Time{})
@@ -314,7 +326,7 @@ func (bio *baseIO) write(msg interface{}, flush bool) error {
 func (bio *baseIO) writeLoop(q queue.Queue) {
 	defer q.Dispose()
 
-	items := make([]interface{}, bio.opts.asyncFlushBatch, bio.opts.asyncFlushBatch)
+	items := make([]interface{}, bio.opts.asyncFlushBatch)
 	for {
 		n, err := q.Get(bio.opts.asyncFlushBatch, items)
 		if nil != err {
@@ -338,7 +350,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 }
 
 func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error) {
-	if 0 != timeout {
+	if timeout != 0 {
 		bio.conn.SetReadDeadline(time.Now().Add(timeout))
 	} else {
 		bio.conn.SetReadDeadline(time.Time{})

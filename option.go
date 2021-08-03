@@ -16,6 +16,14 @@ const (
 	DefaultWriteBuf = 256
 )
 
+// IOSessionAware io session aware
+type IOSessionAware interface {
+	// Created session created
+	Created(IOSession)
+	//Closed session closed
+	Closed(IOSession)
+}
+
 // AppOption application option
 type AppOption func(*appOptions)
 
@@ -23,6 +31,7 @@ type appOptions struct {
 	sessionOpts       *options
 	sessionBucketSize uint64
 	errorMsgFactory   func(IOSession, interface{}, error) interface{}
+	aware             IOSessionAware
 }
 
 // WithAppSessionOptions set the number of maps to store session
@@ -38,6 +47,13 @@ func WithAppSessionOptions(value ...Option) AppOption {
 func WithAppSessionBucketSize(value uint64) AppOption {
 	return func(opts *appOptions) {
 		opts.sessionBucketSize = value
+	}
+}
+
+// WithAppSessionBucketSize set the app session aware
+func WithAppSessionAware(aware IOSessionAware) AppOption {
+	return func(opts *appOptions) {
+		opts.aware = aware
 	}
 }
 

@@ -244,7 +244,13 @@ func (s *server) doStart() error {
 			defer func() {
 				s.deleteSession(rs)
 				rs.Close()
+				if s.opts.aware != nil {
+					s.opts.aware.Closed(rs)
+				}
 			}()
+			if s.opts.aware != nil {
+				s.opts.aware.Created(rs)
+			}
 			s.doConnection(rs)
 		}()
 	}
