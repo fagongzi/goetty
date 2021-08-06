@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty/codec"
+	"go.uber.org/zap"
 )
 
 const (
@@ -76,7 +77,7 @@ func (opts *appOptions) adjust() {
 type Option func(*options)
 
 type options struct {
-	logger                    Logger
+	logger                    *zap.Logger
 	decoder                   codec.Decoder
 	encoder                   codec.Encoder
 	readBufSize, writeBufSize int
@@ -105,12 +106,12 @@ func (opts *options) adjust() {
 	}
 
 	if opts.logger == nil {
-		opts.logger = newStdLog()
+		opts.logger = logger
 	}
 }
 
 // WithLogger set logger
-func WithLogger(value Logger) Option {
+func WithLogger(value *zap.Logger) Option {
 	return func(opts *options) {
 		opts.logger = value
 	}
