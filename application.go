@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -113,7 +115,7 @@ func (s *server) Start() error {
 	select {
 	case <-s.startCh:
 		atomic.StoreInt32(&s.state, stateStarted)
-		s.opts.sessionOpts.logger.Infof("net application started")
+		s.opts.sessionOpts.logger.Info("goetty application started")
 		return nil
 	case err := <-c:
 		return err
@@ -235,9 +237,9 @@ func (s *server) doStart() error {
 					const size = 64 << 10
 					rBuf := make([]byte, size)
 					rBuf = rBuf[:runtime.Stack(rBuf, false)]
-					s.opts.sessionOpts.logger.Errorf("goetty: connection painc %+v, stack:\n%s",
-						err,
-						rBuf)
+					s.opts.sessionOpts.logger.Error("connection painc",
+						zap.Any("err", err),
+						zap.String("stack", string(rBuf)))
 				}
 			}()
 
@@ -257,11 +259,12 @@ func (s *server) doStart() error {
 }
 
 func (s *server) doConnection(rs IOSession) error {
-	received := uint64(0)
+	logger := s.opts.sessionOpts.logger.With(zap.Uint64("session-id", rs.ID()),
+		zap.String("addr", rs.RemoteAddr()))
 
-	s.opts.sessionOpts.logger.Infof("session %d[%s] connected",
-		rs.ID(),
-		rs.RemoteAddr())
+	logger.Info("session connected")
+
+	received := uint64(0)
 	for {
 		msg, err := rs.Read()
 		if err != nil {
@@ -269,26 +272,19 @@ func (s *server) doConnection(rs IOSession) error {
 				return nil
 			}
 
-			s.opts.sessionOpts.logger.Errorf("session %d[%s] read failed with %+v",
-				rs.ID(),
-				rs.RemoteAddr(),
-				err)
+			logger.Info("session read failed",
+				zap.Error(err))
 			return err
 		}
 
-		s.opts.sessionOpts.logger.Debugf("session %d[%s] read %+v",
-			rs.ID(),
-			rs.RemoteAddr(),
-			msg)
-
+		logger.Debug("session read", zap.Any("msg", msg))
 		received++
+
 		err = s.handleFunc(rs, msg, received)
 		if err != nil {
 			if s.opts.errorMsgFactory == nil {
-				s.opts.sessionOpts.logger.Errorf("session %d[%s] handle failed with %+v, close session",
-					rs.ID(),
-					rs.RemoteAddr(),
-					err)
+				logger.Error("session handle failed, close this session",
+					zap.Error(err))
 				return err
 			}
 

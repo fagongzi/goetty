@@ -12,6 +12,7 @@ import (
 
 	"github.com/fagongzi/goetty/buf"
 	"github.com/fagongzi/goetty/queue"
+	"go.uber.org/zap"
 )
 
 var (
@@ -71,6 +72,7 @@ type baseIO struct {
 	attrs                sync.Map
 	disableConnect       bool
 	asyncQueue           queue.Queue
+	logger               *zap.Logger
 }
 
 // NewIOSession create a new io session
@@ -80,7 +82,6 @@ func NewIOSession(opts ...Option) IOSession {
 
 func newBaseIO(id uint64, conn net.Conn, opts ...Option) IOSession {
 	bopts := &options{}
-
 	for _, opt := range opts {
 		opt(bopts)
 	}
@@ -91,10 +92,11 @@ func newBaseIO(id uint64, conn net.Conn, opts ...Option) IOSession {
 
 func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
 	bio := &baseIO{
-		id:   id,
-		opts: opts,
-		in:   buf.NewByteBuf(opts.readBufSize),
-		out:  buf.NewByteBuf(opts.writeBufSize),
+		id:     id,
+		opts:   opts,
+		in:     buf.NewByteBuf(opts.readBufSize),
+		out:    buf.NewByteBuf(opts.writeBufSize),
+		logger: logger,
 	}
 
 	if conn != nil {
@@ -330,7 +332,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 	for {
 		n, err := q.Get(bio.opts.asyncFlushBatch, items)
 		if nil != err {
-			bio.opts.logger.Fatalf("BUG: can not failed")
+			bio.logger.Panic("BUG: can not failed")
 		}
 
 		for i := int64(0); i < n; i++ {
@@ -343,7 +345,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 
 		err = bio.Flush()
 		if err != nil {
-			bio.opts.logger.Errorf("flush messages failed with %+v, closed this session", err)
+			bio.logger.Error("flush messages failed, closed this session", zap.Error(err))
 			return
 		}
 	}
@@ -389,6 +391,8 @@ func (bio *baseIO) initConn(conn net.Conn) {
 		bio.remoteIP = strings.Split(bio.remoteAddr, ":")[0]
 	}
 
+	bio.logger = bio.opts.logger.With(zap.Uint64("id", bio.id),
+		zap.String("conn", bio.remoteAddr))
 	bio.opts.connOptionFunc(bio.conn)
 	if bio.opts.asyncWrite {
 		bio.asyncQueue = queue.New(64)
