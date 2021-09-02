@@ -72,6 +72,7 @@ type baseIO struct {
 	attrs                sync.Map
 	disableConnect       bool
 	asyncQueue           queue.Queue
+	stopWriteC           chan struct{}
 	logger               *zap.Logger
 }
 
@@ -138,7 +139,7 @@ func (bio *baseIO) Connect(addr string, timeout time.Duration) (bool, error) {
 		return false, fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	bio.reset()
+	bio.resetToRead()
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
@@ -176,17 +177,13 @@ func (bio *baseIO) Close() error {
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	bio.reset()
-	atomic.StoreInt32(&bio.state, stateReadyToConnect)
-
+	bio.stopWriteLoop()
+	bio.closeConn()
 	if bio.disableConnect {
 		bio.in.Release()
 		bio.out.Release()
 	}
-
-	if bio.opts.asyncWrite {
-		bio.asyncQueue.Put(stopFlag)
-	}
+	atomic.StoreInt32(&bio.state, stateReadyToConnect)
 	return nil
 }
 
@@ -325,6 +322,13 @@ func (bio *baseIO) write(msg interface{}, flush bool) error {
 	return nil
 }
 
+func (bio *baseIO) stopWriteLoop() {
+	if bio.opts.asyncWrite {
+		bio.asyncQueue.Put(stopFlag)
+		<-bio.stopWriteC
+	}
+}
+
 func (bio *baseIO) writeLoop(q queue.Queue) {
 	defer q.Dispose()
 
@@ -337,6 +341,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 
 		for i := int64(0); i < n; i++ {
 			if items[i] == stopFlag {
+				close(bio.stopWriteC)
 				return
 			}
 
@@ -370,10 +375,13 @@ func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error
 	return bio.opts.decoder.Decode(bio.in)
 }
 
-func (bio *baseIO) reset() {
+func (bio *baseIO) closeConn() {
 	if bio.conn != nil {
 		bio.conn.Close()
 	}
+}
+
+func (bio *baseIO) resetToRead() {
 	bio.in.Clear()
 	bio.out.Clear()
 	bio.remoteAddr = ""
@@ -396,6 +404,7 @@ func (bio *baseIO) initConn(conn net.Conn) {
 	bio.opts.connOptionFunc(bio.conn)
 	if bio.opts.asyncWrite {
 		bio.asyncQueue = queue.New(64)
+		bio.stopWriteC = make(chan struct{})
 		go bio.writeLoop(bio.asyncQueue)
 	}
 	atomic.StoreInt32(&bio.state, stateConnected)

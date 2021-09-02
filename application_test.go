@@ -41,15 +41,6 @@ func TestStop(t *testing.T) {
 
 	assert.Equal(t, n, len(sessions))
 	assert.NoError(t, app.Stop())
-	time.Sleep(time.Second * 1)
-	total := 0
-	for _, m := range app.sessions {
-		total += len(m.sessions)
-	}
-	for _, s := range sessions {
-		assert.False(t, s.Connected())
-	}
-	assert.Equal(t, 0, total)
 }
 
 func newTestTCPApp(t *testing.T, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) NetApplication {
