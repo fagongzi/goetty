@@ -148,7 +148,6 @@ func (s *server) Stop() error {
 
 	s.listener.Close()
 	close(s.startCh)
-	s.closeAllSessions()
 	atomic.StoreInt32(&s.state, stateStopped)
 	return nil
 }
@@ -181,19 +180,6 @@ func (s *server) Broadcast(msg interface{}) error {
 	}
 
 	return nil
-}
-
-func (s *server) closeAllSessions() {
-	for _, m := range s.sessions {
-		go func(m *sessionMap) {
-			m.Lock()
-			for _, rs := range m.sessions {
-				rs.Close()
-				delete(m.sessions, rs.ID())
-			}
-			m.Unlock()
-		}(m)
-	}
 }
 
 func (s *server) doStart() error {
