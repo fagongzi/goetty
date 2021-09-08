@@ -6,6 +6,7 @@ import (
 
 	"github.com/fagongzi/goetty/codec/simple"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
 
 var (
@@ -41,6 +42,19 @@ func TestStop(t *testing.T) {
 
 	assert.Equal(t, n, len(sessions))
 	assert.NoError(t, app.Stop())
+}
+
+func TestCloseBlock(t *testing.T) {
+	app := newTestTCPApp(t, nil).(*server)
+	assert.NoError(t, app.Start())
+
+	conn := newTestIOSession(t, WithEnableAsyncWrite(16), WithLogger(zap.NewExample()))
+	ok, err := conn.Connect(testAddr, time.Second)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assert.NoError(t, app.Stop())
+	assert.NoError(t, conn.Write(string(make([]byte, 1024*1024))))
+	assert.NoError(t, conn.Close())
 }
 
 func newTestTCPApp(t *testing.T, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) NetApplication {
