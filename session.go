@@ -350,8 +350,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 
 		err = bio.Flush()
 		if err != nil {
-			bio.logger.Error("flush messages failed, closed this session", zap.Error(err))
-			return
+			bio.logger.Error("flush messages failed, closed this session", zap.Int32("state", bio.getState()), zap.Error(err))
 		}
 	}
 }
