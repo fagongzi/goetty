@@ -10,8 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/valyala/tcplisten"
 	"go.uber.org/zap"
 )
+
+var cfg = &tcplisten.Config{
+	ReusePort: true,
+	FastOpen:  true,
+}
 
 var (
 	stateReadyToStart = int32(0)
@@ -75,7 +81,7 @@ func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{
 
 // NewTCPApplication returns a net application
 func NewTCPApplication(addr string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
-	listener, err := net.Listen("tcp", addr)
+	listener, err := cfg.NewListener("tcp4", addr)
 	if err != nil {
 		return nil, err
 	}
