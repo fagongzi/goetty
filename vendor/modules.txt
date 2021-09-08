@@ -8,6 +8,9 @@ github.com/pmezard/go-difflib/difflib
 # github.com/stretchr/testify v1.7.0
 ## explicit
 github.com/stretchr/testify/assert
+# github.com/valyala/tcplisten v1.0.0
+## explicit
+github.com/valyala/tcplisten
 # go.uber.org/atomic v1.7.0
 go.uber.org/atomic
 # go.uber.org/multierr v1.6.0
