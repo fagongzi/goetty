@@ -152,9 +152,19 @@ func (s *server) Stop() error {
 		return fmt.Errorf("error state %d", current)
 	}
 
+	atomic.StoreInt32(&s.state, stateStopped)
 	s.listener.Close()
 	close(s.startCh)
-	atomic.StoreInt32(&s.state, stateStopped)
+	go func() {
+		for _, m := range s.sessions {
+			m.Lock()
+			for k, rs := range m.sessions {
+				delete(m.sessions, k)
+				rs.Close()
+			}
+			m.Unlock()
+		}
+	}()
 	return nil
 }
 

@@ -57,6 +57,35 @@ func TestCloseBlock(t *testing.T) {
 	assert.NoError(t, conn.Close())
 }
 
+func TestIssue13(t *testing.T) {
+	app := newTestTCPApp(t, nil).(*server)
+	assert.NoError(t, app.Start())
+
+	conn := newTestIOSession(t, WithEnableAsyncWrite(16), WithLogger(zap.NewExample()))
+	ok, err := conn.Connect(testAddr, time.Second)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	errC := make(chan error)
+	go func() {
+		_, err := conn.Read()
+		if err != nil {
+			errC <- err
+			return
+		}
+	}()
+
+	time.Sleep(time.Millisecond * 100)
+	assert.NoError(t, app.Stop())
+
+	select {
+	case <-errC:
+		return
+	case <-time.After(time.Second * 1):
+		assert.Fail(t, "timeout")
+	}
+}
+
 func newTestTCPApp(t *testing.T, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) NetApplication {
 	encoder, decoder := simple.NewStringCodec()
 	opts = append(opts, WithAppSessionOptions(WithCodec(encoder, decoder)))
