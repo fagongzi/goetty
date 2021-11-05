@@ -33,6 +33,7 @@ type appOptions struct {
 	sessionBucketSize uint64
 	errorMsgFactory   func(IOSession, interface{}, error) interface{}
 	aware             IOSessionAware
+	logger            *zap.Logger
 }
 
 // WithAppSessionOptions set the number of maps to store session
@@ -41,6 +42,13 @@ func WithAppSessionOptions(value ...Option) AppOption {
 		for _, opt := range value {
 			opt(opts.sessionOpts)
 		}
+	}
+}
+
+// WithAppLogger set logger for application
+func WithAppLogger(logger *zap.Logger) AppOption {
+	return func(opts *appOptions) {
+		opts.logger = logger
 	}
 }
 
@@ -66,8 +74,9 @@ func WithAppErrorMsgFactory(value func(IOSession, interface{}, error) interface{
 }
 
 func (opts *appOptions) adjust() {
+	opts.logger = adjustLogger(opts.logger).Named("goetty")
+	opts.sessionOpts.logger = opts.logger
 	opts.sessionOpts.adjust()
-
 	if opts.sessionBucketSize == 0 {
 		opts.sessionBucketSize = DefaultSessionBucketSize
 	}
@@ -105,9 +114,7 @@ func (opts *options) adjust() {
 		opts.connOptionFunc = func(net.Conn) {}
 	}
 
-	if opts.logger == nil {
-		opts.logger = logger
-	}
+	opts.logger = adjustLogger(opts.logger)
 }
 
 // WithLogger set logger

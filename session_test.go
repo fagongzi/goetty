@@ -4,10 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNormal(t *testing.T) {
+	defer leaktest.AfterTest(t)
+
 	var cs IOSession
 	cnt := uint64(0)
 	app := newTestTCPApp(t, func(rs IOSession, msg interface{}, received uint64) error {
@@ -56,6 +59,8 @@ func TestNormal(t *testing.T) {
 }
 
 func TestAsyncWrite(t *testing.T) {
+	defer leaktest.AfterTest(t)
+
 	app := newTestTCPApp(t, func(rs IOSession, msg interface{}, received uint64) error {
 		rs.WriteAndFlush(msg)
 		return nil

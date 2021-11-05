@@ -62,18 +62,18 @@ type IOSession interface {
 }
 
 type baseIO struct {
-	id                   uint64
-	opts                 *options
-	state                int32
-	conn                 net.Conn
-	remoteIP, remoteAddr string
-	in                   *buf.ByteBuf
-	out                  *buf.ByteBuf
-	attrs                sync.Map
-	disableConnect       bool
-	asyncQueue           queue.Queue
-	stopWriteC           chan struct{}
-	logger               *zap.Logger
+	id                    uint64
+	opts                  *options
+	state                 int32
+	conn                  net.Conn
+	localAddr, remoteAddr string
+	in                    *buf.ByteBuf
+	out                   *buf.ByteBuf
+	attrs                 sync.Map
+	disableConnect        bool
+	asyncQueue            queue.Queue
+	stopWriteC            chan struct{}
+	logger                *zap.Logger
 }
 
 // NewIOSession create a new io session
@@ -93,11 +93,10 @@ func newBaseIO(id uint64, conn net.Conn, opts ...Option) IOSession {
 
 func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
 	bio := &baseIO{
-		id:     id,
-		opts:   opts,
-		in:     buf.NewByteBuf(opts.readBufSize),
-		out:    buf.NewByteBuf(opts.writeBufSize),
-		logger: logger,
+		id:   id,
+		opts: opts,
+		in:   buf.NewByteBuf(opts.readBufSize),
+		out:  buf.NewByteBuf(opts.writeBufSize),
 	}
 
 	if conn != nil {
@@ -278,7 +277,10 @@ func (bio *baseIO) RemoteAddr() string {
 }
 
 func (bio *baseIO) RemoteIP() string {
-	return bio.remoteIP
+	if bio.remoteAddr == "" {
+		return ""
+	}
+	return strings.Split(bio.remoteAddr, ":")[0]
 }
 
 func (bio *baseIO) InBuf() *buf.ByteBuf {
@@ -384,7 +386,6 @@ func (bio *baseIO) resetToRead() {
 	bio.in.Clear()
 	bio.out.Clear()
 	bio.remoteAddr = ""
-	bio.remoteIP = ""
 }
 
 func (bio *baseIO) getState() int32 {
@@ -394,12 +395,11 @@ func (bio *baseIO) getState() int32 {
 func (bio *baseIO) initConn(conn net.Conn) {
 	bio.conn = conn
 	bio.remoteAddr = conn.RemoteAddr().String()
-	if bio.remoteAddr != "" {
-		bio.remoteIP = strings.Split(bio.remoteAddr, ":")[0]
-	}
+	bio.localAddr = conn.LocalAddr().String()
 
-	bio.logger = bio.opts.logger.With(zap.Uint64("id", bio.id),
-		zap.String("conn", bio.remoteAddr))
+	bio.logger = adjustLogger(bio.opts.logger).Named("io-session").With(zap.Uint64("id", bio.id),
+		zap.String("local-address", bio.localAddr),
+		zap.String("remote-address", bio.remoteAddr))
 	bio.opts.connOptionFunc(bio.conn)
 	if bio.opts.asyncWrite {
 		bio.asyncQueue = queue.New(64)
