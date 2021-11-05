@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty/codec/simple"
+	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -14,6 +15,8 @@ var (
 )
 
 func TestStart(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
 	app := newTestTCPApp(t, nil)
 	defer app.Stop()
 
@@ -22,29 +25,35 @@ func TestStart(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
+	defer leaktest.AfterTest(t)
+
 	app := newTestTCPApp(t, nil).(*server)
 	assert.NoError(t, app.Start())
-	n := 200
+
+	n := 10
 	for i := 0; i < n; i++ {
 		session := newTestIOSession(t)
 		ok, err := session.Connect(testAddr, time.Second)
 		assert.NoError(t, err)
 		assert.True(t, ok)
-	}
-	time.Sleep(time.Second * 1)
-
-	var sessions []IOSession
-	for _, m := range app.sessions {
-		for _, s := range m.sessions {
-			sessions = append(sessions, s)
-		}
+		assert.NoError(t, session.WriteAndFlush("test"))
 	}
 
-	assert.Equal(t, n, len(sessions))
 	assert.NoError(t, app.Stop())
+
+	c := 0
+	for _, m := range app.sessions {
+		m.Lock()
+		c += len(m.sessions)
+		m.Unlock()
+	}
+
+	assert.Equal(t, 0, c)
 }
 
 func TestCloseBlock(t *testing.T) {
+	defer leaktest.AfterTest(t)
+
 	app := newTestTCPApp(t, nil).(*server)
 	assert.NoError(t, app.Start())
 
@@ -58,6 +67,8 @@ func TestCloseBlock(t *testing.T) {
 }
 
 func TestIssue13(t *testing.T) {
+	defer leaktest.AfterTest(t)
+
 	app := newTestTCPApp(t, nil).(*server)
 	assert.NoError(t, app.Start())
 

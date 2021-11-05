@@ -3,6 +3,9 @@ github.com/davecgh/go-spew/spew
 # github.com/fagongzi/util v0.0.0-20201116094402-221cc40c4593
 ## explicit
 github.com/fagongzi/util/hack
+# github.com/lni/goutils v1.3.0
+## explicit
+github.com/lni/goutils/leaktest
 # github.com/pmezard/go-difflib v1.0.0
 github.com/pmezard/go-difflib/difflib
 # github.com/stretchr/testify v1.7.0

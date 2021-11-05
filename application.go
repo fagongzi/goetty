@@ -2,7 +2,6 @@ package goetty
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"runtime"
@@ -18,14 +17,6 @@ var cfg = &tcplisten.Config{
 	ReusePort: true,
 	FastOpen:  true,
 }
-
-var (
-	stateReadyToStart = int32(0)
-	stateStarting     = int32(1)
-	stateStarted      = int32(2)
-	stateStopping     = int32(3)
-	stateStopped      = int32(4)
-)
 
 // NetApplication is a network based application
 type NetApplication interface {
@@ -48,10 +39,14 @@ type server struct {
 	id         uint64
 	opts       *appOptions
 	listener   net.Listener
-	startCh    chan struct{}
-	state      int32
+	closedC    chan struct{}
 	sessions   map[uint64]*sessionMap
 	handleFunc func(IOSession, interface{}, uint64) error
+
+	mu struct {
+		sync.RWMutex
+		running bool
+	}
 }
 
 // NewApplication returns a net application with listener
@@ -62,7 +57,7 @@ func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{
 		opts: &appOptions{
 			sessionOpts: &options{},
 		},
-		startCh: make(chan struct{}, 1),
+		closedC: make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -70,6 +65,7 @@ func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{
 	}
 
 	s.opts.adjust()
+	s.opts.logger = s.opts.logger.With(zap.String("listen-address", listener.Addr().String()))
 	s.sessions = make(map[uint64]*sessionMap, s.opts.sessionBucketSize)
 	for i := uint64(0); i < s.opts.sessionBucketSize; i++ {
 		s.sessions[i] = &sessionMap{
@@ -90,71 +86,29 @@ func NewTCPApplication(addr string, handleFunc func(IOSession, interface{}, uint
 }
 
 func (s *server) Start() error {
-	old := s.getState()
-	switch old {
-	case stateStarting:
-		return errors.New("server is in starting")
-	case stateStopping:
-		return errors.New("server is in stopping")
-	case stateStopped:
-		return errors.New("server is stopped")
-	case stateStarted:
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.mu.running {
 		return nil
-	case stateReadyToStart:
-		break
 	}
 
-	if !atomic.CompareAndSwapInt32(&s.state, stateReadyToStart, stateStarting) {
-		current := s.getState()
-		if current == stateStarted {
-			return nil
-		}
-
-		return fmt.Errorf("error state %d", current)
-	}
-
-	c := make(chan error)
-	go func() {
-		c <- s.doStart()
-	}()
-
-	select {
-	case <-s.startCh:
-		atomic.StoreInt32(&s.state, stateStarted)
-		s.opts.sessionOpts.logger.Info("goetty application started")
-		return nil
-	case err := <-c:
-		return err
-	}
+	s.mu.running = true
+	go s.doStart()
+	s.opts.logger.Info("application started")
+	return nil
 }
 
 func (s *server) Stop() error {
-	old := s.getState()
-	switch old {
-	case stateStarting:
-		return errors.New("server not started")
-	case stateStopping:
-		return errors.New("server is in stopping")
-	case stateStopped:
+	s.mu.Lock()
+	if !s.mu.running {
+		s.mu.Unlock()
 		return nil
-	case stateReadyToStart:
-		return errors.New("server is not start")
-	case stateStarted:
-		break
 	}
 
-	if !atomic.CompareAndSwapInt32(&s.state, stateStarted, stateStopping) {
-		current := s.getState()
-		if current == stateStopped {
-			return nil
-		}
-
-		return fmt.Errorf("error state %d", current)
-	}
-
-	atomic.StoreInt32(&s.state, stateStopped)
 	s.listener.Close()
-	close(s.startCh)
+	s.opts.logger.Info("application listener closed")
+	c := make(chan struct{})
 	go func() {
 		for _, m := range s.sessions {
 			m.Lock()
@@ -164,13 +118,18 @@ func (s *server) Stop() error {
 			}
 			m.Unlock()
 		}
+		close(c)
 	}()
+	<-c
+	s.mu.running = false
+	s.mu.Unlock()
+	<-s.closedC
+	s.opts.logger.Info("application stopped")
 	return nil
 }
 
 func (s *server) GetSession(id uint64) (IOSession, error) {
-	state := s.getState()
-	if state != stateStarted {
+	if !s.isStarted() {
 		return nil, errors.New("server is not started")
 	}
 
@@ -182,8 +141,7 @@ func (s *server) GetSession(id uint64) (IOSession, error) {
 }
 
 func (s *server) Broadcast(msg interface{}) error {
-	state := s.getState()
-	if state != stateStarted {
+	if !s.isStarted() {
 		return errors.New("server is not started")
 	}
 
@@ -198,22 +156,18 @@ func (s *server) Broadcast(msg interface{}) error {
 	return nil
 }
 
-func (s *server) doStart() error {
-	s.startCh <- struct{}{}
+func (s *server) doStart() {
+	s.opts.logger.Info("application accept loop started")
 	var tempDelay time.Duration
 	for {
 		conn, err := s.listener.Accept()
-		state := s.getState()
-		switch state {
-		case stateStopping:
-		case stateStopped:
-			if nil != conn {
-				conn.Close()
-			}
-			return nil
-		}
-
 		if err != nil {
+			if !s.isStarted() {
+				s.opts.logger.Info("application accept loop stopped")
+				close(s.closedC)
+				return
+			}
+
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
@@ -226,7 +180,7 @@ func (s *server) doStart() error {
 				time.Sleep(tempDelay)
 				continue
 			}
-			return err
+			return
 		}
 		tempDelay = 0
 
@@ -239,7 +193,7 @@ func (s *server) doStart() error {
 					const size = 64 << 10
 					rBuf := make([]byte, size)
 					rBuf = rBuf[:runtime.Stack(rBuf, false)]
-					s.opts.sessionOpts.logger.Error("connection painc",
+					s.opts.logger.Error("connection painc",
 						zap.Any("err", err),
 						zap.String("stack", string(rBuf)))
 				}
@@ -261,7 +215,7 @@ func (s *server) doStart() error {
 }
 
 func (s *server) doConnection(rs IOSession) error {
-	logger := s.opts.sessionOpts.logger.With(zap.Uint64("session-id", rs.ID()),
+	logger := s.opts.logger.With(zap.Uint64("session-id", rs.ID()),
 		zap.String("addr", rs.RemoteAddr()))
 
 	logger.Info("session connected")
@@ -313,6 +267,9 @@ func (s *server) nextID() uint64 {
 	return atomic.AddUint64(&s.id, 1)
 }
 
-func (s *server) getState() int32 {
-	return atomic.LoadInt32(&s.state)
+func (s *server) isStarted() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.mu.running
 }
