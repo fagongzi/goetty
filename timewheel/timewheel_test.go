@@ -138,8 +138,8 @@ func TestScheduleExpired(t *testing.T) {
 	ch := make(chan struct{})
 	tw := NewTimeoutWheel()
 	tw.Stop()
-	tw.ticks = 0
-	tw.state = running
+	atomic.StoreUint64(&tw.ticks, 0)
+	tw.updateState(running)
 
 	tw.buckets[0].lastTick = 1
 	timeout, _ := tw.Schedule(0, func(_ interface{}) { close(ch) }, nil)

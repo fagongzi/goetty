@@ -1,6 +1,7 @@
 package goetty
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func TestNormal(t *testing.T) {
 	app := newTestTCPApp(t, func(rs IOSession, msg interface{}, received uint64) error {
 		cs = rs
 		rs.WriteAndFlush(msg)
-		cnt = received
+		atomic.StoreUint64(&cnt, received)
 		return nil
 	})
 	app.Start()
@@ -32,7 +33,7 @@ func TestNormal(t *testing.T) {
 	reply, err := client.Read()
 	assert.NoError(t, err)
 	assert.Equal(t, "hello", reply)
-	assert.Equal(t, uint64(1), cnt)
+	assert.Equal(t, uint64(1), atomic.LoadUint64(&cnt))
 
 	v, err := app.GetSession(cs.ID())
 	assert.NoError(t, err)
