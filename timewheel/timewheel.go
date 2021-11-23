@@ -22,7 +22,7 @@ const (
 
 const (
 	// states of the TimeoutWheel
-	stopped = iota
+	stopped int32 = iota
 	stopping
 	running
 )
@@ -125,7 +125,7 @@ type TimeoutWheel struct {
 	buckets      []timeoutList
 	freelists    []timeoutList
 
-	state     int
+	state     int32
 	calloutCh chan timeoutList
 	done      chan struct{}
 }
@@ -196,13 +196,21 @@ func NewTimeoutWheel(options ...Option) *TimeoutWheel {
 	return t
 }
 
+func (t *TimeoutWheel) getState() int32 {
+	return atomic.LoadInt32(&t.state)
+}
+
+func (t *TimeoutWheel) updateState(state int32) {
+	atomic.StoreInt32(&t.state, state)
+}
+
 // Start starts a stopped timeout wheel. Subsequent calls to Start panic.
 func (t *TimeoutWheel) Start() {
 	t.lockAllBuckets()
 	defer t.unlockAllBuckets()
 
-	for t.state != stopped {
-		switch t.state {
+	for t.getState() != stopped {
+		switch t.getState() {
 		case stopping:
 			t.unlockAllBuckets()
 			<-t.done
@@ -212,7 +220,7 @@ func (t *TimeoutWheel) Start() {
 		}
 	}
 
-	t.state = running
+	t.updateState(running)
 	t.done = make(chan struct{})
 	t.calloutCh = make(chan timeoutList)
 
@@ -224,8 +232,8 @@ func (t *TimeoutWheel) Start() {
 func (t *TimeoutWheel) Stop() {
 	t.lockAllBuckets()
 
-	if t.state == running {
-		t.state = stopping
+	if t.getState() == running {
+		t.updateState(stopping)
 		close(t.calloutCh)
 		for i := range t.buckets {
 			t.freeBucketLocked(t.buckets[i])
@@ -249,7 +257,7 @@ func (t *TimeoutWheel) Schedule(
 	deadline := atomic.LoadUint64(&t.ticks) + uint64(dTicks)
 	timeout := t.getTimeoutLocked(deadline)
 
-	if t.state != running {
+	if t.getState() != running {
 		t.putTimeoutLocked(timeout)
 		timeout.mtx.Unlock()
 		return Timeout{}, ErrSystemStopped
@@ -281,22 +289,22 @@ func (t *TimeoutWheel) doTick() {
 
 	ticker := time.NewTicker(t.tickInterval)
 	for range ticker.C {
-		atomic.AddUint64(&t.ticks, 1)
+		v := atomic.AddUint64(&t.ticks, 1)
 
-		mtx := t.lockBucket(t.ticks)
-		if t.state != running {
+		mtx := t.lockBucket(v)
+		if t.getState() != running {
 			mtx.Unlock()
 			break
 		}
 
-		bucket := &t.buckets[t.ticks&t.bucketMask]
+		bucket := &t.buckets[v&t.bucketMask]
 		timeout := bucket.head
-		bucket.lastTick = t.ticks
+		bucket.lastTick = v
 
 		// find all the expired timeouts in the bucket.
 		for timeout != nil {
 			next := timeout.next
-			if timeout.deadline <= t.ticks {
+			if timeout.deadline <= v {
 				timeout.state = timeoutExpired
 				timeout.removeLocked()
 				timeout.prependLocked(&expiredList)
@@ -386,7 +394,7 @@ func (t *TimeoutWheel) doExpired() {
 	}
 
 	t.lockAllBuckets()
-	t.state = stopped
+	t.updateState(stopped)
 	t.unlockAllBuckets()
 	close(t.done)
 }

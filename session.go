@@ -95,8 +95,6 @@ func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
 	bio := &baseIO{
 		id:   id,
 		opts: opts,
-		in:   buf.NewByteBuf(opts.readBufSize),
-		out:  buf.NewByteBuf(opts.writeBufSize),
 	}
 
 	if conn != nil {
@@ -138,7 +136,6 @@ func (bio *baseIO) Connect(addr string, timeout time.Duration) (bool, error) {
 		return false, fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	bio.resetToRead()
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
@@ -178,10 +175,7 @@ func (bio *baseIO) Close() error {
 
 	bio.stopWriteLoop()
 	bio.closeConn()
-	if bio.disableConnect {
-		bio.in.Release()
-		bio.out.Release()
-	}
+	bio.out.Release()
 	atomic.StoreInt32(&bio.state, stateReadyToConnect)
 	return nil
 }
@@ -208,7 +202,7 @@ func (bio *baseIO) Read() (interface{}, error) {
 			}
 
 			if nil != err {
-				bio.in.Clear()
+				bio.in.Release()
 				return nil, err
 			}
 
@@ -382,12 +376,6 @@ func (bio *baseIO) closeConn() {
 	}
 }
 
-func (bio *baseIO) resetToRead() {
-	bio.in.Clear()
-	bio.out.Clear()
-	bio.remoteAddr = ""
-}
-
 func (bio *baseIO) getState() int32 {
 	return atomic.LoadInt32(&bio.state)
 }
@@ -396,6 +384,8 @@ func (bio *baseIO) initConn(conn net.Conn) {
 	bio.conn = conn
 	bio.remoteAddr = conn.RemoteAddr().String()
 	bio.localAddr = conn.LocalAddr().String()
+	bio.in = buf.NewByteBuf(bio.opts.readBufSize)
+	bio.out = buf.NewByteBuf(bio.opts.writeBufSize)
 
 	bio.logger = adjustLogger(bio.opts.logger).Named("io-session").With(zap.Uint64("id", bio.id),
 		zap.String("local-address", bio.localAddr),
