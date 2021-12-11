@@ -59,6 +59,8 @@ type IOSession interface {
 	RemoteAddr() string
 	// RemoteIP returns remote address, only ip
 	RemoteIP() string
+	// RawConn returns the raw connection
+	RawConn() (net.Conn, error)
 }
 
 type baseIO struct {
@@ -295,6 +297,13 @@ func (bio *baseIO) GetAttr(key string) interface{} {
 	}
 
 	return nil
+}
+
+func (bio *baseIO) RawConn() (net.Conn, error) {
+	if !bio.Connected() {
+		return nil, ErrIllegalState
+	}
+	return bio.conn, nil
 }
 
 func (bio *baseIO) write(msg interface{}, flush bool) error {
