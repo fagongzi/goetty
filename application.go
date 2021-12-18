@@ -1,6 +1,7 @@
 package goetty
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -9,14 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/valyala/tcplisten"
 	"go.uber.org/zap"
 )
-
-var cfg = &tcplisten.Config{
-	ReusePort: true,
-	FastOpen:  true,
-}
 
 // NetApplication is a network based application
 type NetApplication interface {
@@ -77,7 +72,10 @@ func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{
 
 // NewTCPApplication returns a net application
 func NewTCPApplication(addr string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
-	listener, err := cfg.NewListener("tcp4", addr)
+	listenConfig := &net.ListenConfig{
+		Control: listenControl,
+	}
+	listener, err := listenConfig.Listen(context.TODO(), "tcp4", addr)
 	if err != nil {
 		return nil, err
 	}
