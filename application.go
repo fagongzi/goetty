@@ -103,25 +103,22 @@ func (s *server) Stop() error {
 		s.mu.Unlock()
 		return nil
 	}
+	s.mu.running = false
+	s.mu.Unlock()
 
 	s.listener.Close()
 	s.opts.logger.Info("application listener closed")
-	c := make(chan struct{})
-	go func() {
-		for _, m := range s.sessions {
-			m.Lock()
-			for k, rs := range m.sessions {
-				delete(m.sessions, k)
-				rs.Close()
-			}
-			m.Unlock()
-		}
-		close(c)
-	}()
-	<-c
-	s.mu.running = false
-	s.mu.Unlock()
 	<-s.closedC
+
+	// now no new connection will added, close all active sessions
+	for _, m := range s.sessions {
+		m.Lock()
+		for k, rs := range m.sessions {
+			delete(m.sessions, k)
+			rs.Close()
+		}
+		m.Unlock()
+	}
 	s.opts.logger.Info("application stopped")
 	return nil
 }
