@@ -111,7 +111,12 @@ func (bio *baseIO) ID() uint64 {
 	return bio.id
 }
 
-func (bio *baseIO) Connect(addr string, timeout time.Duration) (bool, error) {
+func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) (bool, error) {
+	network, address, err := parseAdddress(addressWithNetwork)
+	if err != nil {
+		return false, err
+	}
+
 	if bio.disableConnect {
 		return false, ErrDisableConnect
 	}
@@ -138,7 +143,7 @@ func (bio *baseIO) Connect(addr string, timeout time.Duration) (bool, error) {
 		return false, fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := net.DialTimeout(network, address, timeout)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
 		return false, err

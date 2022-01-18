@@ -5,7 +5,8 @@ import (
 	"errors"
 	"io"
 	"net"
-	"runtime"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,8 +45,8 @@ type server struct {
 	}
 }
 
-// NewApplication returns a net application with listener
-func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
+// NewApplicationWithListener returns a net application with listener
+func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
 	s := &server{
 		listener:   listener,
 		handleFunc: handleFunc,
@@ -70,17 +71,23 @@ func NewApplication(listener net.Listener, handleFunc func(IOSession, interface{
 	return s, nil
 }
 
-// NewTCPApplication returns a net application
-func NewTCPApplication(addr string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
-	listenConfig := &net.ListenConfig{
-		Control: listenControl,
-	}
-	listener, err := listenConfig.Listen(context.TODO(), "tcp4", addr)
+// NewApplication returns a application
+func NewApplication(address string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
+	network, address, err := parseAdddress(address)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewApplication(listener, handleFunc, opts...)
+	listenConfig := &net.ListenConfig{
+		Control: listenControl,
+	}
+
+	listener, err := listenConfig.Listen(context.TODO(), network, address)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewApplicationWithListener(listener, handleFunc, opts...)
 }
 
 func (s *server) Start() error {
@@ -184,17 +191,6 @@ func (s *server) doStart() {
 
 		go func() {
 			defer func() {
-				if err := recover(); err != nil {
-					const size = 64 << 10
-					rBuf := make([]byte, size)
-					rBuf = rBuf[:runtime.Stack(rBuf, false)]
-					s.opts.logger.Error("connection painc",
-						zap.Any("err", err),
-						zap.String("stack", string(rBuf)))
-				}
-			}()
-
-			defer func() {
 				s.deleteSession(rs)
 				rs.Close()
 				if s.opts.aware != nil {
@@ -267,4 +263,21 @@ func (s *server) isStarted() bool {
 	defer s.mu.RUnlock()
 
 	return s.mu.running
+}
+
+func parseAdddress(address string) (string, string, error) {
+	if !strings.Contains(address, "//") {
+		return "tcp4", address, nil
+	}
+
+	u, err := url.Parse(address)
+	if err != nil {
+		return "", "", err
+	}
+
+	if strings.ToUpper(u.Scheme) == "UNIX" {
+		return u.Scheme, u.Path, nil
+	}
+
+	return u.Scheme, u.Host, nil
 }
