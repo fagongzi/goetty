@@ -102,3 +102,55 @@ func TestAsyncWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestReadWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
+				rs.WriteAndFlush(msg)
+				return nil
+			})
+			app.Start()
+			defer app.Stop()
+
+			client := newTestIOSession(t)
+			defer client.Close()
+
+			ok, err := client.Connect(addr, time.Second)
+			assert.NoError(t, err)
+			assert.True(t, ok)
+
+			_, err = client.ReadWithTimeout(time.Millisecond * 10)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestWriteWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
+				rs.WriteAndFlush(msg)
+				return nil
+			})
+			app.Start()
+			defer app.Stop()
+
+			client := newTestIOSession(t)
+			defer client.Close()
+
+			ok, err := client.Connect(addr, time.Second)
+			assert.NoError(t, err)
+			assert.True(t, ok)
+
+			err = client.WriteAndFlushWithTimeout("hello", 1)
+			assert.Error(t, err)
+		})
+	}
+}

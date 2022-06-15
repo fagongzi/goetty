@@ -41,12 +41,20 @@ type IOSession interface {
 	Connected() bool
 	// Read read packet from connection
 	Read() (interface{}, error)
+	// ReadWithTimeout is similar to Read, but use spec timeout instead of global
+	// timeout
+	ReadWithTimeout(timeout time.Duration) (interface{}, error)
 	// Write write packet to connection out buffer
 	Write(msg interface{}) error
 	// WriteAndFlush write packet to connection out buffer and flush the out buffer
 	WriteAndFlush(msg interface{}) error
+	// WriteAndFlushWithTimeout is similar to WriteAndFlush, but use spec timeout instead
+	// of global timeout
+	WriteAndFlushWithTimeout(msg interface{}, timeout time.Duration) error
 	// Flush flush the out buffer
 	Flush() error
+	// FlushWithTimeout is similar to Flush, but use spec timeout instead of global timeout
+	FlushWithTimeout(timeout time.Duration) error
 	// InBuf connection read buffer
 	InBuf() *buf.ByteBuf
 	// OutBuf connection out buffer
@@ -188,6 +196,10 @@ func (bio *baseIO) Close() error {
 }
 
 func (bio *baseIO) Read() (interface{}, error) {
+	return bio.ReadWithTimeout(bio.opts.readTimeout)
+}
+
+func (bio *baseIO) ReadWithTimeout(timeout time.Duration) (interface{}, error) {
 	for {
 		if !bio.Connected() {
 			return nil, ErrIllegalState
@@ -201,11 +213,11 @@ func (bio *baseIO) Read() (interface{}, error) {
 				complete, msg, err = bio.opts.decoder.Decode(bio.in)
 
 				if !complete && err == nil {
-					complete, msg, err = bio.readFromConn(bio.opts.readTimeout)
+					complete, msg, err = bio.readFromConn(timeout)
 				}
 			} else {
 				bio.in.Clear()
-				complete, msg, err = bio.readFromConn(bio.opts.readTimeout)
+				complete, msg, err = bio.readFromConn(timeout)
 			}
 
 			if nil != err {
@@ -229,19 +241,25 @@ func (bio *baseIO) Write(msg interface{}) error {
 		bio.asyncQueue.Put(msg)
 		return nil
 	}
-	return bio.write(msg, false)
+	return bio.write(msg, false, bio.opts.writeTimeout)
 }
 
-// WriteAndFlush write a msg to server
 func (bio *baseIO) WriteAndFlush(msg interface{}) error {
+	return bio.WriteAndFlushWithTimeout(msg, bio.opts.writeTimeout)
+}
+
+func (bio *baseIO) WriteAndFlushWithTimeout(msg interface{}, timeout time.Duration) error {
 	if bio.opts.asyncWrite {
 		return bio.asyncQueue.Put(msg)
 	}
-	return bio.write(msg, true)
+	return bio.write(msg, true, timeout)
 }
 
-// Flush writes bytes that in the internal bytebuf
 func (bio *baseIO) Flush() error {
+	return bio.FlushWithTimeout(bio.opts.writeTimeout)
+}
+
+func (bio *baseIO) FlushWithTimeout(timeout time.Duration) error {
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
@@ -256,8 +274,8 @@ func (bio *baseIO) Flush() error {
 			break
 		}
 
-		if bio.opts.writeTimeout != 0 {
-			bio.conn.SetWriteDeadline(time.Now().Add(bio.opts.writeTimeout))
+		if timeout != 0 {
+			bio.conn.SetWriteDeadline(time.Now().Add(timeout))
 		} else {
 			bio.conn.SetWriteDeadline(time.Time{})
 		}
@@ -311,7 +329,7 @@ func (bio *baseIO) RawConn() (net.Conn, error) {
 	return bio.conn, nil
 }
 
-func (bio *baseIO) write(msg interface{}, flush bool) error {
+func (bio *baseIO) write(msg interface{}, flush bool, timeout time.Duration) error {
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
@@ -323,7 +341,7 @@ func (bio *baseIO) write(msg interface{}, flush bool) error {
 	}
 
 	if flush {
-		err = bio.Flush()
+		err = bio.FlushWithTimeout(timeout)
 		if err != nil {
 			return err
 		}
@@ -355,7 +373,7 @@ func (bio *baseIO) writeLoop(q queue.Queue) {
 				return
 			}
 
-			bio.write(items[i], false)
+			bio.write(items[i], false, bio.opts.writeTimeout)
 		}
 
 		err = bio.Flush()
