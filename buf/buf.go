@@ -155,9 +155,11 @@ type ByteBuf struct {
 	capacity    int
 	pool        Pool
 	buf         []byte // buf data, auto +/- size
-	readerIndex int    //
-	writerIndex int    //
+	readerIndex int
+	writerIndex int
 	markedIndex int
+
+	sinkTo io.Writer
 }
 
 // ErrTooLarge too larger error
@@ -188,6 +190,57 @@ func WrapBytes(data []byte) *ByteBuf {
 		writerIndex: len(data),
 		pool:        getDefaultMP(),
 	}
+}
+
+// SetSinkTo set down stream sink writer
+func (b *ByteBuf) SetSinkTo(sinkTo io.Writer) {
+	b.sinkTo = sinkTo
+}
+
+// FlushToSink flush readable data to the sink
+func (b *ByteBuf) FlushToSink() (int, error) {
+	if b.Readable() > 0 {
+		defer func() {
+			b.readerIndex = b.writerIndex
+		}()
+		return b.WriteToSink(b.ReadableBytes(), 0)
+	}
+	return 0, nil
+}
+
+// WriteToSink write data to the sink io.writer
+func (b *ByteBuf) WriteToSink(data []byte, buf int) (int, error) {
+	if b.sinkTo == nil {
+		panic("stream not set")
+	}
+
+	written := 0
+	total := len(data)
+	if buf == 0 {
+		buf = 4096
+	}
+	var err error
+	for {
+		to := written + buf
+		if to > total {
+			to = total
+		}
+
+		n, e := b.sinkTo.Write(data[written:to])
+		if n < 0 {
+			panic("invalid write")
+		}
+		written += n
+		if e != nil {
+			err = e
+			break
+		}
+
+		if written == total {
+			break
+		}
+	}
+	return written, err
 }
 
 // Wrap wrap a bytes
@@ -223,7 +276,7 @@ func (b *ByteBuf) Resume(capacity int) {
 
 // Capacity get the capacity
 func (b *ByteBuf) Capacity() int {
-	return cap(b.buf)
+	return len(b.buf)
 }
 
 // SetReaderIndex set the read index
@@ -665,6 +718,22 @@ func MustWriteString(buffer *ByteBuf, value string) {
 // MustWrite must write bytes value
 func MustWrite(buffer *ByteBuf, value []byte) {
 	if _, err := buffer.Write(value); err != nil {
+		panic(err)
+	}
+}
+
+// MustWriteToSink must write bytes to sink
+func MustWriteToSink(buffer *ByteBuf, value []byte, buf int) {
+	_, err := buffer.WriteToSink(value, buf)
+	if err != nil && err != io.EOF {
+		panic(err)
+	}
+}
+
+// MustFlushToSink must flush bytes to sink
+func MustFlushToSink(buffer *ByteBuf) {
+	_, err := buffer.FlushToSink()
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 }
