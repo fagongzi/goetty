@@ -348,6 +348,7 @@ func (bio *baseIO) initConn(conn net.Conn) {
 	bio.localAddr = conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.opts.readBufSize)
 	bio.out = buf.NewByteBuf(bio.opts.writeBufSize)
+	bio.out.SetSinkTo(bio.conn)
 
 	bio.logger = adjustLogger(bio.opts.logger).Named("io-session").With(zap.Uint64("id", bio.id),
 		zap.String("local-address", bio.localAddr),
