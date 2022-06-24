@@ -224,8 +224,10 @@ func (s *server) doConnection(rs IOSession) error {
 			return err
 		}
 
-		logger.Debug("session read", zap.Any("msg", msg))
 		received++
+		if ce := logger.Check(zap.DebugLevel, "session read message"); ce != nil {
+			ce.Write(zap.Uint64("seqence", received))
+		}
 
 		err = s.handleFunc(rs, msg, received)
 		if err != nil {
