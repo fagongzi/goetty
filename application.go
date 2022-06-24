@@ -150,7 +150,7 @@ func (s *server) Broadcast(msg interface{}) error {
 	for _, m := range s.sessions {
 		m.RLock()
 		for _, rs := range m.sessions {
-			rs.WriteAndFlush(msg)
+			rs.Write(msg, WriteOptions{Flush: true})
 		}
 		m.RUnlock()
 	}
@@ -213,7 +213,7 @@ func (s *server) doConnection(rs IOSession) error {
 
 	received := uint64(0)
 	for {
-		msg, err := rs.Read()
+		msg, err := rs.Read(ReadOptions{})
 		if err != nil {
 			if err == io.EOF {
 				return nil
@@ -235,7 +235,7 @@ func (s *server) doConnection(rs IOSession) error {
 				return err
 			}
 
-			rs.Write(s.opts.errorMsgFactory(rs, msg, err))
+			rs.Write(s.opts.errorMsgFactory(rs, msg, err), WriteOptions{Flush: true})
 		}
 	}
 }

@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/goetty/v2/buf"
 )
 
 // Encoder encode interface

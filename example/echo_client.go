@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/fagongzi/goetty"
-	"github.com/fagongzi/goetty/codec/simple"
+	"github.com/fagongzi/goetty/v2"
+	"github.com/fagongzi/goetty/v2/codec/simple"
 )
 
 // EchoClient echo client
@@ -28,14 +28,14 @@ func NewEchoClient(serverAddr string) (*EchoClient, error) {
 
 // SendMsg send msg to server
 func (c *EchoClient) SendMsg(msg string) error {
-	return c.conn.WriteAndFlush(msg)
+	return c.conn.Write(msg, goetty.WriteOptions{Flush: true})
 }
 
 // ReadLoop read loop
 func (c *EchoClient) ReadLoop() error {
 	// start loop to read msg from server
 	for {
-		msg, err := c.conn.Read() // if you want set a read deadline, you can use 'WithTimeout option'
+		msg, err := c.conn.Read(goetty.ReadOptions{})
 		if err != nil {
 			log.Printf("read failed with %+v", err)
 			return err

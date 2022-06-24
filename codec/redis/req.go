@@ -3,8 +3,8 @@ package redis
 import (
 	"strconv"
 
-	"github.com/fagongzi/goetty"
-	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/goetty/v2"
+	"github.com/fagongzi/goetty/v2/buf"
 )
 
 const (

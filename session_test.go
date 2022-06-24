@@ -1,10 +1,14 @@
 package goetty
 
 import (
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v2/codec/length"
 	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 )
@@ -19,21 +23,21 @@ func TestNormal(t *testing.T) {
 			cnt := uint64(0)
 			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
 				cs = rs
-				rs.WriteAndFlush(msg)
 				atomic.StoreUint64(&cnt, received)
+				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
 			app.Start()
 			defer app.Stop()
 
-			client := newTestIOSession(t, WithTimeout(time.Second, time.Second))
+			client := newTestIOSession(t)
 			ok, err := client.Connect(addr, time.Second)
 			assert.NoError(t, err)
 			assert.True(t, ok)
 			assert.True(t, client.Connected())
 
-			assert.NoError(t, client.WriteAndFlush("hello"))
-			reply, err := client.Read()
+			assert.NoError(t, client.Write("hello", WriteOptions{Flush: true}))
+			reply, err := client.Read(ReadOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, "hello", reply)
 			assert.Equal(t, uint64(1), atomic.LoadUint64(&cnt))
@@ -43,13 +47,13 @@ func TestNormal(t *testing.T) {
 			assert.NotNil(t, v)
 
 			assert.NoError(t, app.Broadcast("world"))
-			reply, err = client.Read()
+			reply, err = client.Read(ReadOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, "world", reply)
 
 			assert.NoError(t, client.Close())
 			assert.False(t, client.Connected())
-			assert.Error(t, client.WriteAndFlush("hello"))
+			assert.Error(t, client.Write("hello", WriteOptions{Flush: true}))
 
 			time.Sleep(time.Millisecond * 100)
 			v, err = app.GetSession(cs.ID())
@@ -64,45 +68,6 @@ func TestNormal(t *testing.T) {
 	}
 }
 
-func TestAsyncWrite(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-
-	for name, address := range testAddresses {
-		addr := address
-		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
-				rs.WriteAndFlush(msg)
-				return nil
-			})
-			app.Start()
-			defer app.Stop()
-
-			client := newTestIOSession(t, WithTimeout(time.Second, time.Second), WithEnableAsyncWrite(16))
-			defer client.Close()
-
-			ok, err := client.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
-			assert.True(t, client.Connected())
-
-			assert.NoError(t, client.WriteAndFlush("hello"))
-			reply, err := client.Read()
-			assert.NoError(t, err)
-			assert.Equal(t, "hello", reply)
-
-			assert.NoError(t, client.Close())
-			ok, err = client.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
-			assert.True(t, client.Connected())
-			assert.NoError(t, client.WriteAndFlush("hello"))
-			reply, err = client.Read()
-			assert.NoError(t, err)
-			assert.Equal(t, "hello", reply)
-		})
-	}
-}
-
 func TestReadWithTimeout(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
@@ -110,7 +75,7 @@ func TestReadWithTimeout(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
-				rs.WriteAndFlush(msg)
+				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
 			app.Start()
@@ -123,7 +88,7 @@ func TestReadWithTimeout(t *testing.T) {
 			assert.NoError(t, err)
 			assert.True(t, ok)
 
-			_, err = client.ReadWithTimeout(time.Millisecond * 10)
+			_, err = client.Read(ReadOptions{Timeout: time.Millisecond * 10})
 			assert.Error(t, err)
 		})
 	}
@@ -136,7 +101,7 @@ func TestWriteWithTimeout(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
-				rs.WriteAndFlush(msg)
+				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
 			app.Start()
@@ -149,8 +114,53 @@ func TestWriteWithTimeout(t *testing.T) {
 			assert.NoError(t, err)
 			assert.True(t, ok)
 
-			err = client.WriteAndFlushWithTimeout("hello", 1)
+			err = client.Write("hello", WriteOptions{Flush: true, Timeout: 1})
 			assert.Error(t, err)
 		})
 	}
+}
+
+func BenchmarkWriteAndRead(b *testing.B) {
+	b.ReportAllocs()
+	encoder, decoder := newBenchmarkStringCodec()
+	assert.NoError(b, os.RemoveAll(testUnixSocket))
+	app := newTestAppWithCodec(b, testUnixSocket, func(rs IOSession, msg interface{}, received uint64) error {
+		rs.Write(msg, WriteOptions{Flush: true})
+		return nil
+	}, encoder, decoder)
+	app.Start()
+	defer app.Stop()
+
+	client := newTestIOSessionWithCodec(nil, encoder, decoder)
+	defer client.Close()
+
+	ok, err := client.Connect(testUnixSocket, time.Second)
+	assert.NoError(b, err)
+	assert.True(b, ok)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		client.Write("ok", WriteOptions{Flush: true})
+		client.Read(ReadOptions{})
+	}
+}
+
+func newBenchmarkStringCodec() (codec.Encoder, codec.Decoder) {
+	c := &stringCodec{}
+	return length.New(c, c)
+}
+
+type stringCodec struct {
+}
+
+func (c stringCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
+	in.MarkedBytesReaded()
+	return true, "OK", nil
+}
+
+func (c stringCodec) Encode(data interface{}, out *buf.ByteBuf) error {
+	msg, _ := data.(string)
+	for _, d := range msg {
+		out.WriteByte(byte(d))
+	}
+	return nil
 }

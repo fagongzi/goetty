@@ -3,8 +3,8 @@ package example
 import (
 	"log"
 
-	"github.com/fagongzi/goetty"
-	"github.com/fagongzi/goetty/codec/simple"
+	"github.com/fagongzi/goetty/v2"
+	"github.com/fagongzi/goetty/v2/codec/simple"
 )
 
 // EchoServer echo server
@@ -31,12 +31,12 @@ func NewEchoServer(addr string) *EchoServer {
 
 // Start start
 func (s *EchoServer) Start() error {
-	return s.Start()
+	return s.app.Start()
 }
 
 // Stop stop
 func (s *EchoServer) Stop() error {
-	return s.Stop()
+	return s.app.Stop()
 }
 
 func (s *EchoServer) handle(session goetty.IOSession, msg interface{}, received uint64) error {
@@ -44,5 +44,5 @@ func (s *EchoServer) handle(session goetty.IOSession, msg interface{}, received 
 		msg,
 		session.RemoteAddr(),
 		received)
-	return session.WriteAndFlush(msg)
+	return session.Write(msg, goetty.WriteOptions{Flush: true})
 }

@@ -7,7 +7,7 @@ import (
 
 	"fmt"
 
-	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/fagongzi/util/hack"
 	"github.com/stretchr/testify/assert"
 )

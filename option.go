@@ -2,9 +2,8 @@ package goetty
 
 import (
 	"net"
-	"time"
 
-	"github.com/fagongzi/goetty/codec"
+	"github.com/fagongzi/goetty/v2/codec"
 	"go.uber.org/zap"
 )
 
@@ -15,6 +14,10 @@ const (
 	DefaultReadBuf = 256
 	// DefaultWriteBuf write buf size
 	DefaultWriteBuf = 256
+	// DefaultReadCopyBuf io.CopyBuffer buffer size for read
+	DefaultReadCopyBuf = 1024
+	// DefaultWriteCopyBuf io.CopyBuffer buffer size for write
+	DefaultWriteCopyBuf = 1024
 )
 
 // IOSessionAware io session aware
@@ -86,34 +89,34 @@ func (opts *appOptions) adjust() {
 type Option func(*options)
 
 type options struct {
-	logger                    *zap.Logger
-	decoder                   codec.Decoder
-	encoder                   codec.Encoder
-	readBufSize, writeBufSize int
-	writeTimeout, readTimeout time.Duration
-	connOptionFunc            func(net.Conn)
-	asyncWrite                bool
-	asyncFlushBatch           int64
-	releaseMsgFunc            func(interface{})
+	logger                            *zap.Logger
+	decoder                           codec.Decoder
+	encoder                           codec.Encoder
+	readBufSize, writeBufSize         int
+	readCopyBufSize, writeCopyBufSize int
+	connOptionFunc                    func(net.Conn)
+	releaseMsgFunc                    func(interface{})
 }
 
 func (opts *options) adjust() {
 	if opts.readBufSize == 0 {
 		opts.readBufSize = DefaultReadBuf
 	}
-
+	if opts.readCopyBufSize == 0 {
+		opts.readCopyBufSize = DefaultReadCopyBuf
+	}
 	if opts.writeBufSize == 0 {
 		opts.writeBufSize = DefaultWriteBuf
 	}
-
+	if opts.writeCopyBufSize == 0 {
+		opts.writeCopyBufSize = DefaultWriteCopyBuf
+	}
 	if opts.releaseMsgFunc == nil {
 		opts.releaseMsgFunc = func(interface{}) {}
 	}
-
 	if opts.connOptionFunc == nil {
 		opts.connOptionFunc = func(net.Conn) {}
 	}
-
 	opts.logger = adjustLogger(opts.logger)
 }
 
@@ -144,22 +147,6 @@ func WithBufSize(read, write int) Option {
 	return func(opts *options) {
 		opts.readBufSize = read
 		opts.writeBufSize = write
-	}
-}
-
-// WithTimeout set read/write timeout
-func WithTimeout(read, write time.Duration) Option {
-	return func(opts *options) {
-		opts.writeTimeout = write
-		opts.readTimeout = read
-	}
-}
-
-// WithEnableAsyncWrite enable async write
-func WithEnableAsyncWrite(asyncFlushBatch int64) Option {
-	return func(opts *options) {
-		opts.asyncWrite = true
-		opts.asyncFlushBatch = asyncFlushBatch
 	}
 }
 

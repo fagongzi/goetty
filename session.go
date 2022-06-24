@@ -10,8 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fagongzi/goetty/buf"
-	"github.com/fagongzi/goetty/queue"
+	"github.com/fagongzi/goetty/v2/buf"
 	"go.uber.org/zap"
 )
 
@@ -25,9 +24,21 @@ var (
 	stateConnectting    int32 = 1
 	stateConnected      int32 = 2
 	stateClosing        int32 = 3
-
-	stopFlag = &struct{}{}
 )
+
+// WriteOptions write options
+type WriteOptions struct {
+	// Timeout deadline for write
+	Timeout time.Duration
+	// Flush flush data to net.Conn
+	Flush bool
+}
+
+// ReadOptions read options
+type ReadOptions struct {
+	// Timeout deadline for read
+	Timeout time.Duration
+}
 
 // IOSession session
 type IOSession interface {
@@ -40,21 +51,12 @@ type IOSession interface {
 	// Connected returns true if connection is ok
 	Connected() bool
 	// Read read packet from connection
-	Read() (interface{}, error)
-	// ReadWithTimeout is similar to Read, but use spec timeout instead of global
-	// timeout
-	ReadWithTimeout(timeout time.Duration) (interface{}, error)
-	// Write write packet to connection out buffer
-	Write(msg interface{}) error
-	// WriteAndFlush write packet to connection out buffer and flush the out buffer
-	WriteAndFlush(msg interface{}) error
-	// WriteAndFlushWithTimeout is similar to WriteAndFlush, but use spec timeout instead
-	// of global timeout
-	WriteAndFlushWithTimeout(msg interface{}, timeout time.Duration) error
+	Read(option ReadOptions) (interface{}, error)
+	// Write encodes the msg into a []byte into the buffer according to the codec.Encode.
+	// If flush is set to flase, the data will not be written to the underlying socket.
+	Write(msg interface{}, options WriteOptions) error
 	// Flush flush the out buffer
-	Flush() error
-	// FlushWithTimeout is similar to Flush, but use spec timeout instead of global timeout
-	FlushWithTimeout(timeout time.Duration) error
+	Flush(timeout time.Duration) error
 	// InBuf connection read buffer
 	InBuf() *buf.ByteBuf
 	// OutBuf connection out buffer
@@ -81,9 +83,9 @@ type baseIO struct {
 	out                   *buf.ByteBuf
 	attrs                 sync.Map
 	disableConnect        bool
-	asyncQueue            queue.Queue
-	stopWriteC            chan struct{}
 	logger                *zap.Logger
+	readCopyBuf           []byte
+	writeCopyBuf          []byte
 }
 
 // NewIOSession create a new io session
@@ -103,8 +105,10 @@ func newBaseIO(id uint64, conn net.Conn, opts ...Option) IOSession {
 
 func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
 	bio := &baseIO{
-		id:   id,
-		opts: opts,
+		id:           id,
+		opts:         opts,
+		readCopyBuf:  make([]byte, opts.readCopyBufSize),
+		writeCopyBuf: make([]byte, opts.writeCopyBufSize),
 	}
 
 	if conn != nil {
@@ -188,18 +192,13 @@ func (bio *baseIO) Close() error {
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	bio.stopWriteLoop()
 	bio.closeConn()
 	bio.out.Release()
 	atomic.StoreInt32(&bio.state, stateReadyToConnect)
 	return nil
 }
 
-func (bio *baseIO) Read() (interface{}, error) {
-	return bio.ReadWithTimeout(bio.opts.readTimeout)
-}
-
-func (bio *baseIO) ReadWithTimeout(timeout time.Duration) (interface{}, error) {
+func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
 	for {
 		if !bio.Connected() {
 			return nil, ErrIllegalState
@@ -213,11 +212,11 @@ func (bio *baseIO) ReadWithTimeout(timeout time.Duration) (interface{}, error) {
 				complete, msg, err = bio.opts.decoder.Decode(bio.in)
 
 				if !complete && err == nil {
-					complete, msg, err = bio.readFromConn(timeout)
+					complete, msg, err = bio.readFromConn(options.Timeout)
 				}
 			} else {
 				bio.in.Clear()
-				complete, msg, err = bio.readFromConn(timeout)
+				complete, msg, err = bio.readFromConn(options.Timeout)
 			}
 
 			if nil != err {
@@ -236,59 +235,44 @@ func (bio *baseIO) ReadWithTimeout(timeout time.Duration) (interface{}, error) {
 	}
 }
 
-func (bio *baseIO) Write(msg interface{}) error {
-	if bio.opts.asyncWrite {
-		bio.asyncQueue.Put(msg)
-		return nil
-	}
-	return bio.write(msg, false, bio.opts.writeTimeout)
-}
-
-func (bio *baseIO) WriteAndFlush(msg interface{}) error {
-	return bio.WriteAndFlushWithTimeout(msg, bio.opts.writeTimeout)
-}
-
-func (bio *baseIO) WriteAndFlushWithTimeout(msg interface{}, timeout time.Duration) error {
-	if bio.opts.asyncWrite {
-		return bio.asyncQueue.Put(msg)
-	}
-	return bio.write(msg, true, timeout)
-}
-
-func (bio *baseIO) Flush() error {
-	return bio.FlushWithTimeout(bio.opts.writeTimeout)
-}
-
-func (bio *baseIO) FlushWithTimeout(timeout time.Duration) error {
+func (bio *baseIO) Write(msg interface{}, options WriteOptions) error {
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
 
-	buf := bio.out
-	defer buf.Clear()
+	err := bio.opts.encoder.Encode(msg, bio.out)
+	bio.opts.releaseMsgFunc(msg)
+	if err != nil {
+		return err
+	}
 
-	total := buf.Readable()
-	written := 0
-	for {
-		if written == total {
-			break
-		}
-
-		if timeout != 0 {
-			bio.conn.SetWriteDeadline(time.Now().Add(timeout))
-		} else {
-			bio.conn.SetWriteDeadline(time.Time{})
-		}
-		n, err := bio.conn.Write(buf.RawBuf()[buf.GetReaderIndex()+written : buf.GetWriteIndex()])
+	if options.Flush && bio.out.Readable() > 0 {
+		err = bio.Flush(options.Timeout)
 		if err != nil {
-
 			return err
 		}
-
-		written += n
 	}
 
 	return nil
+}
+
+func (bio *baseIO) Flush(timeout time.Duration) error {
+	defer bio.out.Clear()
+	if !bio.Connected() {
+		return ErrIllegalState
+	}
+
+	if timeout != 0 {
+		bio.conn.SetWriteDeadline(time.Now().Add(timeout))
+	} else {
+		bio.conn.SetWriteDeadline(time.Time{})
+	}
+
+	_, err := io.CopyBuffer(bio.conn, bio.out, bio.writeCopyBuf)
+	if err == nil || err == io.EOF {
+		return nil
+	}
+	return err
 }
 
 func (bio *baseIO) RemoteAddr() string {
@@ -329,60 +313,6 @@ func (bio *baseIO) RawConn() (net.Conn, error) {
 	return bio.conn, nil
 }
 
-func (bio *baseIO) write(msg interface{}, flush bool, timeout time.Duration) error {
-	if !bio.Connected() {
-		return ErrIllegalState
-	}
-
-	err := bio.opts.encoder.Encode(msg, bio.out)
-	bio.opts.releaseMsgFunc(msg)
-	if err != nil {
-		return err
-	}
-
-	if flush {
-		err = bio.FlushWithTimeout(timeout)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (bio *baseIO) stopWriteLoop() {
-	if bio.opts.asyncWrite {
-		bio.asyncQueue.Put(stopFlag)
-		<-bio.stopWriteC
-	}
-}
-
-func (bio *baseIO) writeLoop(q queue.Queue) {
-	defer q.Dispose()
-
-	items := make([]interface{}, bio.opts.asyncFlushBatch)
-	for {
-		n, err := q.Get(bio.opts.asyncFlushBatch, items)
-		if nil != err {
-			bio.logger.Panic("BUG: can not failed")
-		}
-
-		for i := int64(0); i < n; i++ {
-			if items[i] == stopFlag {
-				close(bio.stopWriteC)
-				return
-			}
-
-			bio.write(items[i], false, bio.opts.writeTimeout)
-		}
-
-		err = bio.Flush()
-		if err != nil {
-			bio.logger.Error("flush messages failed, closed this session", zap.Int32("state", bio.getState()), zap.Error(err))
-		}
-	}
-}
-
 func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error) {
 	if timeout != 0 {
 		bio.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -390,7 +320,7 @@ func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error
 		bio.conn.SetReadDeadline(time.Time{})
 	}
 
-	n, err := io.Copy(bio.in, bio.conn)
+	n, err := io.CopyBuffer(bio.in, bio.conn, bio.readCopyBuf)
 	if err != nil {
 		return false, nil, err
 	}
@@ -423,10 +353,5 @@ func (bio *baseIO) initConn(conn net.Conn) {
 		zap.String("local-address", bio.localAddr),
 		zap.String("remote-address", bio.remoteAddr))
 	bio.opts.connOptionFunc(bio.conn)
-	if bio.opts.asyncWrite {
-		bio.asyncQueue = queue.New(64)
-		bio.stopWriteC = make(chan struct{})
-		go bio.writeLoop(bio.asyncQueue)
-	}
 	atomic.StoreInt32(&bio.state, stateConnected)
 }

@@ -3,7 +3,7 @@ package simple
 import (
 	"testing"
 
-	"github.com/fagongzi/goetty/buf"
+	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/stretchr/testify/assert"
 )
 
