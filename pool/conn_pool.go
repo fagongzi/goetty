@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fagongzi/goetty"
+	"github.com/fagongzi/goetty/v2"
 )
 
 var (

@@ -1,9 +1,9 @@
 package simple
 
 import (
-	"github.com/fagongzi/goetty/buf"
-	"github.com/fagongzi/goetty/codec"
-	"github.com/fagongzi/goetty/codec/length"
+	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v2/codec/length"
 )
 
 // NewBytesCodec returns a bytes codec

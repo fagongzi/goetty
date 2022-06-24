@@ -4,15 +4,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fagongzi/goetty/codec/simple"
+	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v2/codec/simple"
 	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 var (
 	testAddr       = "127.0.0.1:12345"
-	testUDPAddr    = "udp://127.0.0.1:12346"
 	testUnixSocket = "unix:///tmp/goetty.sock"
 
 	testAddresses = map[string]string{
@@ -51,7 +50,7 @@ func TestStop(t *testing.T) {
 				ok, err := session.Connect(addr, time.Second)
 				assert.NoError(t, err)
 				assert.True(t, ok)
-				assert.NoError(t, session.WriteAndFlush("test"))
+				assert.NoError(t, session.Write("test", WriteOptions{Flush: true}))
 			}
 
 			assert.NoError(t, app.Stop())
@@ -69,83 +68,38 @@ func TestStop(t *testing.T) {
 
 }
 
-func TestCloseBlock(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-
-	for name, address := range testAddresses {
-		addr := address
-		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, nil).(*server)
-			assert.NoError(t, app.Start())
-
-			conn := newTestIOSession(t, WithEnableAsyncWrite(16), WithLogger(zap.NewExample()))
-			ok, err := conn.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
-			assert.NoError(t, app.Stop())
-			assert.NoError(t, conn.Write(string(make([]byte, 1024*1024))))
-			assert.NoError(t, conn.Close())
-		})
-	}
-
+func newTestApp(t assert.TestingT,
+	address string,
+	handleFunc func(IOSession, interface{}, uint64) error,
+	opts ...AppOption) NetApplication {
+	encoder, decoder := simple.NewStringCodec()
+	return newTestAppWithCodec(t, address, handleFunc, encoder, decoder)
 }
 
-func TestIssue13(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-
-	for name, address := range testAddresses {
-		addr := address
-		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, nil).(*server)
-			assert.NoError(t, app.Start())
-
-			conn := newTestIOSession(t, WithEnableAsyncWrite(16), WithLogger(zap.NewExample()))
-			ok, err := conn.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
-
-			defer conn.Close()
-
-			errC := make(chan error)
-			go func() {
-				_, err := conn.Read()
-				if err != nil {
-					errC <- err
-					return
-				}
-			}()
-
-			time.Sleep(time.Millisecond * 100)
-			assert.NoError(t, app.Stop())
-
-			select {
-			case <-errC:
-				return
-			case <-time.After(time.Second * 1):
-				assert.Fail(t, "timeout")
-			}
-		})
-	}
-
-}
-
-func newTestApp(t *testing.T, address string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) NetApplication {
+func newTestAppWithCodec(t assert.TestingT,
+	address string,
+	handleFunc func(IOSession, interface{}, uint64) error,
+	encoder codec.Encoder,
+	decoder codec.Decoder,
+	opts ...AppOption) NetApplication {
 	if handleFunc == nil {
 		handleFunc = func(i1 IOSession, i2 interface{}, u uint64) error {
 			return nil
 		}
 	}
 
-	encoder, decoder := simple.NewStringCodec()
 	opts = append(opts, WithAppSessionOptions(WithCodec(encoder, decoder)))
 	app, err := NewApplication(address, handleFunc, opts...)
 	assert.NoError(t, err)
-
 	return app
 }
 
 func newTestIOSession(t *testing.T, opts ...Option) IOSession {
 	encoder, decoder := simple.NewStringCodec()
+	return newTestIOSessionWithCodec(t, encoder, decoder, opts...)
+}
+
+func newTestIOSessionWithCodec(t *testing.T, encoder codec.Encoder, decoder codec.Decoder, opts ...Option) IOSession {
 	opts = append(opts, WithCodec(encoder, decoder))
 	return NewIOSession(opts...)
 }
@@ -155,11 +109,6 @@ func TestParseAddress(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "tcp4", network)
 	assert.Equal(t, testAddr, address)
-
-	network, address, err = parseAdddress(testUDPAddr)
-	assert.NoError(t, err)
-	assert.Equal(t, "udp", network)
-	assert.Equal(t, "127.0.0.1:12346", address)
 
 	network, address, err = parseAdddress(testUnixSocket)
 	assert.NoError(t, err)

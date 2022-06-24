@@ -3,8 +3,8 @@ package length
 import (
 	"testing"
 
-	"github.com/fagongzi/goetty/buf"
-	"github.com/fagongzi/goetty/codec/raw"
+	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec/raw"
 	"github.com/stretchr/testify/assert"
 )
 

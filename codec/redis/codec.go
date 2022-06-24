@@ -1,8 +1,8 @@
 package redis
 
 import (
-	"github.com/fagongzi/goetty/buf"
-	"github.com/fagongzi/goetty/codec"
+	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec"
 )
 
 type redisDecoder struct {

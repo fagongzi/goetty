@@ -26,7 +26,8 @@ func TestNewWrap(t *testing.T) {
 
 func TestWrap(t *testing.T) {
 	buf := NewByteBuf(4)
-	buf.Write([]byte{5, 6, 7})
+	_, err := buf.Write([]byte{5, 6, 7})
+	assert.NoError(t, err)
 
 	value := []byte{1, 2, 3}
 	buf.Wrap(value)
@@ -47,7 +48,8 @@ func TestWrap(t *testing.T) {
 
 func TestSlice(t *testing.T) {
 	buf := NewByteBuf(32)
-	buf.Write([]byte("hello"))
+	_, err := buf.Write([]byte("hello"))
+	assert.NoError(t, err)
 	s := buf.Slice(0, 5)
 	assert.Equal(t, "hello", string(s.Data()))
 }
@@ -55,14 +57,16 @@ func TestSlice(t *testing.T) {
 func TestWrittenDataAfterMark(t *testing.T) {
 	buf := NewByteBuf(32)
 	buf.MarkWrite()
-	buf.Write([]byte("hello"))
+	_, err := buf.Write([]byte("hello"))
+	assert.NoError(t, err)
 	s := buf.WrittenDataAfterMark()
 	assert.Equal(t, "hello", string(s.Data()))
 }
 
 func TestExpansion(t *testing.T) {
 	buf := NewByteBuf(256)
-	data := make([]byte, 257, 257)
-	buf.Write(data)
+	data := make([]byte, 257)
+	_, err := buf.Write(data)
+	assert.NoError(t, err)
 	assert.Equal(t, 512, cap(buf.buf))
 }

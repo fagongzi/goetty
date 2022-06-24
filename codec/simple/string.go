@@ -1,9 +1,9 @@
 package simple
 
 import (
-	"github.com/fagongzi/goetty/buf"
-	"github.com/fagongzi/goetty/codec"
-	"github.com/fagongzi/goetty/codec/length"
+	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v2/codec/length"
 )
 
 // NewStringCodec returns a string codec
@@ -16,13 +16,9 @@ type stringCodec struct {
 }
 
 func (c stringCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
-	_, data, err := in.ReadMarkedBytes()
-
-	if err != nil {
-		return false, "", err
-	}
-
-	return true, string(data), nil
+	v := string(in.GetMarkedRemindData())
+	in.MarkedBytesReaded()
+	return true, v, nil
 }
 
 func (c stringCodec) Encode(data interface{}, out *buf.ByteBuf) error {
