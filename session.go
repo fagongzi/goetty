@@ -193,7 +193,9 @@ func (bio *baseIO) Close() error {
 	}
 
 	bio.closeConn()
-	bio.out.Release()
+	if !bio.opts.disableReleaseOut {
+		bio.out.Release()
+	}
 	atomic.StoreInt32(&bio.state, stateReadyToConnect)
 	return nil
 }

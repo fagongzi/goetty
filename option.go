@@ -96,6 +96,7 @@ type options struct {
 	readCopyBufSize, writeCopyBufSize int
 	connOptionFunc                    func(net.Conn)
 	releaseMsgFunc                    func(interface{})
+	disableReleaseOut                 bool
 }
 
 func (opts *options) adjust() {
@@ -118,6 +119,13 @@ func (opts *options) adjust() {
 		opts.connOptionFunc = func(net.Conn) {}
 	}
 	opts.logger = adjustLogger(opts.logger)
+}
+
+// WithDisableReleaseOutBuf set disable release buf
+func WithDisableReleaseOutBuf() Option {
+	return func(opts *options) {
+		opts.disableReleaseOut = true
+	}
 }
 
 // WithLogger set logger
