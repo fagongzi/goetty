@@ -348,8 +348,14 @@ func (bio *baseIO) initConn(conn net.Conn) {
 	bio.conn = conn
 	bio.remoteAddr = conn.RemoteAddr().String()
 	bio.localAddr = conn.LocalAddr().String()
-	bio.in = buf.NewByteBuf(bio.opts.readBufSize)
-	bio.out = buf.NewByteBuf(bio.opts.writeBufSize)
+
+	if bio.opts.pool != nil {
+		bio.in = buf.NewByteBufPool(bio.opts.readBufSize, bio.opts.pool)
+		bio.out = buf.NewByteBufPool(bio.opts.writeBufSize, bio.opts.pool)
+	} else {
+		bio.in = buf.NewByteBuf(bio.opts.readBufSize)
+		bio.out = buf.NewByteBuf(bio.opts.writeBufSize)
+	}
 	bio.out.SetSinkTo(bio.conn)
 
 	bio.logger = adjustLogger(bio.opts.logger).Named("io-session").With(zap.Uint64("id", bio.id),

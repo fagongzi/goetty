@@ -3,6 +3,7 @@ package goetty
 import (
 	"net"
 
+	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/fagongzi/goetty/v2/codec"
 	"go.uber.org/zap"
 )
@@ -97,6 +98,7 @@ type options struct {
 	connOptionFunc                    func(net.Conn)
 	releaseMsgFunc                    func(interface{})
 	disableReleaseOut                 bool
+	pool                              buf.Pool
 }
 
 func (opts *options) adjust() {
@@ -132,6 +134,13 @@ func WithDisableReleaseOutBuf() Option {
 func WithLogger(value *zap.Logger) Option {
 	return func(opts *options) {
 		opts.logger = value
+	}
+}
+
+// WithBufPool set buf pool
+func WithBufPool(pool buf.Pool) Option {
+	return func(opts *options) {
+		opts.pool = pool
 	}
 }
 
