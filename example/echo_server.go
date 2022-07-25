@@ -16,9 +16,8 @@ type EchoServer struct {
 // NewEchoServer create new server
 func NewEchoServer(addr string) *EchoServer {
 	svr := &EchoServer{}
-	encoder, decoder := simple.NewStringCodec()
 	app, err := goetty.NewApplication(addr, svr.handle,
-		goetty.WithAppSessionOptions(goetty.WithCodec(encoder, decoder)))
+		goetty.WithAppSessionOptions(goetty.WithSessionCodec(simple.NewStringCodec())))
 	if err != nil {
 		log.Panicf("start server failed with %+v", err)
 	}

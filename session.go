@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v2/codec"
 	"go.uber.org/zap"
 )
 
@@ -38,6 +39,67 @@ type WriteOptions struct {
 type ReadOptions struct {
 	// Timeout deadline for read
 	Timeout time.Duration
+}
+
+// Option option to create IOSession
+type Option func(*baseIO)
+
+// WithDisableReleaseOutBuf set disable release buf
+func WithDisableReleaseOutBuf() Option {
+	return func(bio *baseIO) {
+		bio.options.disableReleaseOut = true
+	}
+}
+
+// WithSessionLogger set logger for IOSession
+func WithSessionLogger(logger *zap.Logger) Option {
+	return func(bio *baseIO) {
+		bio.logger = logger
+	}
+}
+
+// WithSessionAllocator set mem allocator to build in and out ByteBuf
+func WithSessionAllocator(allocator buf.Allocator) Option {
+	return func(bio *baseIO) {
+		bio.options.allocator = allocator
+	}
+}
+
+// WithSessionConnOptionFunc set conn options func
+func WithSessionConnOptionFunc(connOptionFunc func(net.Conn)) Option {
+	return func(bio *baseIO) {
+		bio.options.connOptionFunc = connOptionFunc
+	}
+}
+
+// WithSessionCodec set codec for IOSession
+func WithSessionCodec(codec codec.Codec) Option {
+	return func(bio *baseIO) {
+		bio.options.codec = codec
+	}
+}
+
+// WithSessionRWBUfferSize set read/write buf size for IOSession
+func WithSessionRWBUfferSize(read, write int) Option {
+	return func(bio *baseIO) {
+		bio.options.readBufSize = read
+		bio.options.writeBufSize = write
+	}
+}
+
+// WithSessionConn set IOSession's net.Conn
+func WithSessionConn(id uint64, conn net.Conn) Option {
+	return func(bio *baseIO) {
+		bio.conn = conn
+		bio.id = id
+	}
+}
+
+// WithSessionReleaseMsgFunc set a func to release message once the message encode into the write buf
+func WithSessionReleaseMsgFunc(value func(any)) Option {
+	return func(bio *baseIO) {
+		bio.options.releaseMsgFunc = value
+	}
 }
 
 // IOSession session
@@ -75,7 +137,6 @@ type IOSession interface {
 
 type baseIO struct {
 	id                    uint64
-	opts                  *options
 	state                 int32
 	conn                  net.Conn
 	localAddr, remoteAddr string
@@ -86,37 +147,55 @@ type baseIO struct {
 	logger                *zap.Logger
 	readCopyBuf           []byte
 	writeCopyBuf          []byte
+
+	options struct {
+		codec                             codec.Codec
+		readBufSize, writeBufSize         int
+		readCopyBufSize, writeCopyBufSize int
+		connOptionFunc                    func(net.Conn)
+		releaseMsgFunc                    func(interface{})
+		disableReleaseOut                 bool
+		allocator                         buf.Allocator
+	}
 }
 
 // NewIOSession create a new io session
 func NewIOSession(opts ...Option) IOSession {
-	return newBaseIO(0, nil, opts...)
-}
-
-func newBaseIO(id uint64, conn net.Conn, opts ...Option) IOSession {
-	bopts := &options{}
+	bio := &baseIO{}
 	for _, opt := range opts {
-		opt(bopts)
+		opt(bio)
 	}
+	bio.adjust()
 
-	bopts.adjust()
-	return newBaseIOWithOptions(id, conn, bopts)
-}
-
-func newBaseIOWithOptions(id uint64, conn net.Conn, opts *options) IOSession {
-	bio := &baseIO{
-		id:           id,
-		opts:         opts,
-		readCopyBuf:  make([]byte, opts.readCopyBufSize),
-		writeCopyBuf: make([]byte, opts.writeCopyBufSize),
-	}
-
-	if conn != nil {
-		bio.initConn(conn)
+	bio.readCopyBuf = make([]byte, bio.options.readCopyBufSize)
+	bio.writeCopyBuf = make([]byte, bio.options.writeCopyBufSize)
+	if bio.conn != nil {
+		bio.initConn()
 		bio.disableConnect = true
 	}
-
 	return bio
+}
+
+func (bio *baseIO) adjust() {
+	bio.logger = adjustLogger(bio.logger)
+	if bio.options.readBufSize == 0 {
+		bio.options.readBufSize = DefaultReadBuf
+	}
+	if bio.options.readCopyBufSize == 0 {
+		bio.options.readCopyBufSize = DefaultReadCopyBuf
+	}
+	if bio.options.writeBufSize == 0 {
+		bio.options.writeBufSize = DefaultWriteBuf
+	}
+	if bio.options.writeCopyBufSize == 0 {
+		bio.options.writeCopyBufSize = DefaultWriteCopyBuf
+	}
+	if bio.options.releaseMsgFunc == nil {
+		bio.options.releaseMsgFunc = func(interface{}) {}
+	}
+	if bio.options.connOptionFunc == nil {
+		bio.options.connOptionFunc = func(net.Conn) {}
+	}
 }
 
 func (bio *baseIO) ID() uint64 {
@@ -161,7 +240,8 @@ func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) (bo
 		return false, err
 	}
 
-	bio.initConn(conn)
+	bio.conn = conn
+	bio.initConn()
 	return true, nil
 }
 
@@ -193,7 +273,7 @@ func (bio *baseIO) Close() error {
 	}
 
 	bio.closeConn()
-	if !bio.opts.disableReleaseOut {
+	if !bio.options.disableReleaseOut {
 		bio.out.Release()
 	}
 	atomic.StoreInt32(&bio.state, stateReadyToConnect)
@@ -211,14 +291,13 @@ func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
 		var complete bool
 		for {
 			if bio.in.Readable() > 0 {
-				complete, msg, err = bio.opts.decoder.Decode(bio.in)
-
+				msg, complete, err = bio.options.codec.Decode(bio.in)
 				if !complete && err == nil {
-					complete, msg, err = bio.readFromConn(options.Timeout)
+					msg, complete, err = bio.readFromConn(options.Timeout)
 				}
 			} else {
-				bio.in.Clear()
-				complete, msg, err = bio.readFromConn(options.Timeout)
+				bio.in.Reset()
+				msg, complete, err = bio.readFromConn(options.Timeout)
 			}
 
 			if nil != err {
@@ -228,7 +307,7 @@ func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
 
 			if complete {
 				if bio.in.Readable() == 0 {
-					bio.in.Clear()
+					bio.in.Reset()
 				}
 
 				return msg, nil
@@ -242,8 +321,8 @@ func (bio *baseIO) Write(msg interface{}, options WriteOptions) error {
 		return ErrIllegalState
 	}
 
-	err := bio.opts.encoder.Encode(msg, bio.out)
-	bio.opts.releaseMsgFunc(msg)
+	err := bio.options.codec.Encode(msg, bio.out, bio.conn)
+	bio.options.releaseMsgFunc(msg)
 	if err != nil {
 		return err
 	}
@@ -259,7 +338,7 @@ func (bio *baseIO) Write(msg interface{}, options WriteOptions) error {
 }
 
 func (bio *baseIO) Flush(timeout time.Duration) error {
-	defer bio.out.Clear()
+	defer bio.out.Reset()
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
@@ -315,7 +394,7 @@ func (bio *baseIO) RawConn() (net.Conn, error) {
 	return bio.conn, nil
 }
 
-func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error) {
+func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {
 	if timeout != 0 {
 		bio.conn.SetReadDeadline(time.Now().Add(timeout))
 	} else {
@@ -324,14 +403,12 @@ func (bio *baseIO) readFromConn(timeout time.Duration) (bool, interface{}, error
 
 	n, err := io.CopyBuffer(bio.in, bio.conn, bio.readCopyBuf)
 	if err != nil {
-		return false, nil, err
+		return nil, false, err
 	}
-
 	if n == 0 {
-		return false, nil, io.EOF
+		return nil, false, io.EOF
 	}
-
-	return bio.opts.decoder.Decode(bio.in)
+	return bio.options.codec.Decode(bio.in)
 }
 
 func (bio *baseIO) closeConn() {
@@ -344,23 +421,13 @@ func (bio *baseIO) getState() int32 {
 	return atomic.LoadInt32(&bio.state)
 }
 
-func (bio *baseIO) initConn(conn net.Conn) {
-	bio.conn = conn
-	bio.remoteAddr = conn.RemoteAddr().String()
-	bio.localAddr = conn.LocalAddr().String()
-
-	if bio.opts.pool != nil {
-		bio.in = buf.NewByteBufPool(bio.opts.readBufSize, bio.opts.pool)
-		bio.out = buf.NewByteBufPool(bio.opts.writeBufSize, bio.opts.pool)
-	} else {
-		bio.in = buf.NewByteBuf(bio.opts.readBufSize)
-		bio.out = buf.NewByteBuf(bio.opts.writeBufSize)
-	}
-	bio.out.SetSinkTo(bio.conn)
-
-	bio.logger = adjustLogger(bio.opts.logger).Named("io-session").With(zap.Uint64("id", bio.id),
+func (bio *baseIO) initConn() {
+	bio.remoteAddr = bio.conn.RemoteAddr().String()
+	bio.localAddr = bio.conn.LocalAddr().String()
+	bio.in = buf.NewByteBuf(bio.options.readBufSize, buf.WithMemAllocator(bio.options.allocator))
+	bio.out = buf.NewByteBuf(bio.options.writeBufSize, buf.WithMemAllocator(bio.options.allocator))
+	bio.logger = adjustLogger(bio.logger).Named("io-session").With(zap.Uint64("id", bio.id),
 		zap.String("local-address", bio.localAddr),
 		zap.String("remote-address", bio.remoteAddr))
-	bio.opts.connOptionFunc(bio.conn)
 	atomic.StoreInt32(&bio.state, stateConnected)
 }

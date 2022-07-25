@@ -14,6 +14,37 @@ import (
 	"go.uber.org/zap"
 )
 
+// AppOption application option
+type AppOption func(*server)
+
+// WithAppLogger set logger for application
+func WithAppLogger(logger *zap.Logger) AppOption {
+	return func(s *server) {
+		s.logger = logger
+	}
+}
+
+// WithAppSessionBucketSize set the number of maps to store session
+func WithAppSessionBucketSize(value uint64) AppOption {
+	return func(s *server) {
+		s.options.sessionBucketSize = value
+	}
+}
+
+// WithAppSessionBucketSize set the app session aware
+func WithAppSessionAware(value IOSessionAware) AppOption {
+	return func(s *server) {
+		s.options.aware = value
+	}
+}
+
+// WithAppSessionOptions set options to create new connection
+func WithAppSessionOptions(options ...Option) AppOption {
+	return func(s *server) {
+		s.options.sessionOpts = options
+	}
+}
+
 // NetApplication is a network based application
 type NetApplication interface {
 	// Start start the transport server
@@ -32,8 +63,7 @@ type sessionMap struct {
 }
 
 type server struct {
-	id         uint64
-	opts       *appOptions
+	logger     *zap.Logger
 	listener   net.Listener
 	closedC    chan struct{}
 	sessions   map[uint64]*sessionMap
@@ -43,6 +73,16 @@ type server struct {
 		sync.RWMutex
 		running bool
 	}
+
+	atomic struct {
+		id uint64
+	}
+
+	options struct {
+		sessionOpts       []Option
+		sessionBucketSize uint64
+		aware             IOSessionAware
+	}
 }
 
 // NewApplicationWithListener returns a net application with listener
@@ -50,20 +90,17 @@ func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession
 	s := &server{
 		listener:   listener,
 		handleFunc: handleFunc,
-		opts: &appOptions{
-			sessionOpts: &options{},
-		},
-		closedC: make(chan struct{}),
+		closedC:    make(chan struct{}),
 	}
 
 	for _, opt := range opts {
-		opt(s.opts)
+		opt(s)
 	}
 
-	s.opts.adjust()
-	s.opts.logger = s.opts.logger.With(zap.String("listen-address", listener.Addr().String()))
-	s.sessions = make(map[uint64]*sessionMap, s.opts.sessionBucketSize)
-	for i := uint64(0); i < s.opts.sessionBucketSize; i++ {
+	s.adjust()
+	s.logger = s.logger.With(zap.String("listen-address", listener.Addr().String()))
+	s.sessions = make(map[uint64]*sessionMap, s.options.sessionBucketSize)
+	for i := uint64(0); i < s.options.sessionBucketSize; i++ {
 		s.sessions[i] = &sessionMap{
 			sessions: make(map[uint64]IOSession),
 		}
@@ -100,7 +137,7 @@ func (s *server) Start() error {
 
 	s.mu.running = true
 	go s.doStart()
-	s.opts.logger.Info("application started")
+	s.logger.Info("application started")
 	return nil
 }
 
@@ -114,7 +151,7 @@ func (s *server) Stop() error {
 	s.mu.Unlock()
 
 	s.listener.Close()
-	s.opts.logger.Info("application listener closed")
+	s.logger.Info("application listener closed")
 	<-s.closedC
 
 	// now no new connection will added, close all active sessions
@@ -126,7 +163,7 @@ func (s *server) Stop() error {
 		}
 		m.Unlock()
 	}
-	s.opts.logger.Info("application stopped")
+	s.logger.Info("application stopped")
 	return nil
 }
 
@@ -135,7 +172,7 @@ func (s *server) GetSession(id uint64) (IOSession, error) {
 		return nil, errors.New("server is not started")
 	}
 
-	m := s.sessions[id%s.opts.sessionBucketSize]
+	m := s.sessions[id%s.options.sessionBucketSize]
 	m.RLock()
 	session := m.sessions[id]
 	m.RUnlock()
@@ -158,14 +195,22 @@ func (s *server) Broadcast(msg interface{}) error {
 	return nil
 }
 
+func (s *server) adjust() {
+	s.logger = adjustLogger(s.logger)
+	s.options.sessionOpts = append(s.options.sessionOpts, WithSessionLogger(s.logger))
+	if s.options.sessionBucketSize == 0 {
+		s.options.sessionBucketSize = DefaultSessionBucketSize
+	}
+}
+
 func (s *server) doStart() {
-	s.opts.logger.Info("application accept loop started")
+	s.logger.Info("application accept loop started")
 	var tempDelay time.Duration
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			if !s.isStarted() {
-				s.opts.logger.Info("application accept loop stopped")
+				s.logger.Info("application accept loop stopped")
 				close(s.closedC)
 				return
 			}
@@ -186,19 +231,22 @@ func (s *server) doStart() {
 		}
 		tempDelay = 0
 
-		rs := newBaseIOWithOptions(s.nextID(), conn, s.opts.sessionOpts)
+		var options []Option
+		options = append(options, s.options.sessionOpts...)
+		options = append(options, WithSessionConn(s.nextID(), conn))
+		rs := NewIOSession(options...)
 		s.addSession(rs)
 
 		go func() {
 			defer func() {
 				s.deleteSession(rs)
 				rs.Close()
-				if s.opts.aware != nil {
-					s.opts.aware.Closed(rs)
+				if s.options.aware != nil {
+					s.options.aware.Closed(rs)
 				}
 			}()
-			if s.opts.aware != nil {
-				s.opts.aware.Created(rs)
+			if s.options.aware != nil {
+				s.options.aware.Created(rs)
 			}
 			s.doConnection(rs)
 		}()
@@ -206,7 +254,7 @@ func (s *server) doStart() {
 }
 
 func (s *server) doConnection(rs IOSession) error {
-	logger := s.opts.logger.With(zap.Uint64("session-id", rs.ID()),
+	logger := s.logger.With(zap.Uint64("session-id", rs.ID()),
 		zap.String("addr", rs.RemoteAddr()))
 
 	logger.Info("session connected")
@@ -231,33 +279,29 @@ func (s *server) doConnection(rs IOSession) error {
 
 		err = s.handleFunc(rs, msg, received)
 		if err != nil {
-			if s.opts.errorMsgFactory == nil {
-				logger.Error("session handle failed, close this session",
-					zap.Error(err))
-				return err
-			}
-
-			rs.Write(s.opts.errorMsgFactory(rs, msg, err), WriteOptions{Flush: true})
+			logger.Error("session handle failed, close this session",
+				zap.Error(err))
+			return err
 		}
 	}
 }
 
 func (s *server) addSession(session IOSession) {
-	m := s.sessions[session.ID()%s.opts.sessionBucketSize]
+	m := s.sessions[session.ID()%s.options.sessionBucketSize]
 	m.Lock()
 	m.sessions[session.ID()] = session
 	m.Unlock()
 }
 
 func (s *server) deleteSession(session IOSession) {
-	m := s.sessions[session.ID()%s.opts.sessionBucketSize]
+	m := s.sessions[session.ID()%s.options.sessionBucketSize]
 	m.Lock()
 	delete(m.sessions, session.ID())
 	m.Unlock()
 }
 
 func (s *server) nextID() uint64 {
-	return atomic.AddUint64(&s.id, 1)
+	return atomic.AddUint64(&s.atomic.id, 1)
 }
 
 func (s *server) isStarted() bool {

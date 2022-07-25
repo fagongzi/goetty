@@ -1,6 +1,7 @@
 package goetty
 
 import (
+	"io"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -94,36 +95,6 @@ func TestReadWithTimeout(t *testing.T) {
 	}
 }
 
-func TestWriteUsingSink(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-
-	for name, address := range testAddresses {
-		addr := address
-		t.Run(name, func(t *testing.T) {
-			encoder, decoder := newSinkStringCodec()
-			app := newTestAppWithCodec(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
-				rs.Write(msg, WriteOptions{Flush: true})
-				return nil
-			}, encoder, decoder)
-			app.Start()
-			defer app.Stop()
-
-			client := newTestIOSessionWithCodec(t, encoder, decoder)
-			defer client.Close()
-
-			ok, err := client.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
-
-			assert.NoError(t, client.Write("hello", WriteOptions{}))
-
-			v, err := client.Read(ReadOptions{})
-			assert.NoError(t, err)
-			assert.Equal(t, "hello", v)
-		})
-	}
-}
-
 func TestWriteWithTimeout(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
@@ -152,16 +123,16 @@ func TestWriteWithTimeout(t *testing.T) {
 
 func BenchmarkWriteAndRead(b *testing.B) {
 	b.ReportAllocs()
-	encoder, decoder := newBenchmarkStringCodec()
+	codec := newBenchmarkStringCodec()
 	assert.NoError(b, os.RemoveAll(testUnixSocket))
 	app := newTestAppWithCodec(b, testUnixSocket, func(rs IOSession, msg interface{}, received uint64) error {
 		rs.Write(msg, WriteOptions{Flush: true})
 		return nil
-	}, encoder, decoder)
+	}, codec)
 	app.Start()
 	defer app.Stop()
 
-	client := newTestIOSessionWithCodec(nil, encoder, decoder)
+	client := newTestIOSession(nil, WithSessionCodec(codec))
 	defer client.Close()
 
 	ok, err := client.Connect(testUnixSocket, time.Second)
@@ -174,46 +145,21 @@ func BenchmarkWriteAndRead(b *testing.B) {
 	}
 }
 
-func newBenchmarkStringCodec() (codec.Encoder, codec.Decoder) {
-	c := &stringCodec{}
-	return length.New(c, c)
+func newBenchmarkStringCodec() codec.Codec {
+	return length.New(&stringCodec{})
 }
 
 type stringCodec struct {
 }
 
-func (c *stringCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
-	in.MarkedBytesReaded()
-	return true, "OK", nil
+func (c *stringCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+	return "OK", true, nil
 }
 
-func (c *stringCodec) Encode(data interface{}, out *buf.ByteBuf) error {
+func (c *stringCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
 	msg, _ := data.(string)
 	for _, d := range msg {
 		out.WriteByte(byte(d))
 	}
-	return nil
-}
-
-func newSinkStringCodec() (codec.Encoder, codec.Decoder) {
-	c := &sinkCodec{}
-	_, decoder := length.New(c, c)
-	return c, decoder
-}
-
-type sinkCodec struct {
-}
-
-func (c *sinkCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
-	v := string(in.GetMarkedRemindData())
-	in.MarkedBytesReaded()
-	return true, v, nil
-}
-
-func (c *sinkCodec) Encode(data interface{}, out *buf.ByteBuf) error {
-	msg, _ := data.(string)
-	buf.MustWriteInt(out, len(msg))
-	buf.MustWriteString(out, msg)
-	out.FlushToSink()
 	return nil
 }

@@ -1,6 +1,7 @@
 package goetty
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -40,6 +41,9 @@ func TestStop(t *testing.T) {
 
 	for name, address := range testAddresses {
 		addr := address
+		if name == "unix" {
+			assert.NoError(t, os.RemoveAll(testUnixSocket[7:]))
+		}
 		t.Run(name, func(t *testing.T) {
 			app := newTestApp(t, addr, nil).(*server)
 			assert.NoError(t, app.Start())
@@ -72,15 +76,13 @@ func newTestApp(t assert.TestingT,
 	address string,
 	handleFunc func(IOSession, interface{}, uint64) error,
 	opts ...AppOption) NetApplication {
-	encoder, decoder := simple.NewStringCodec()
-	return newTestAppWithCodec(t, address, handleFunc, encoder, decoder)
+	return newTestAppWithCodec(t, address, handleFunc, simple.NewStringCodec())
 }
 
 func newTestAppWithCodec(t assert.TestingT,
 	address string,
 	handleFunc func(IOSession, interface{}, uint64) error,
-	encoder codec.Encoder,
-	decoder codec.Decoder,
+	codec codec.Codec,
 	opts ...AppOption) NetApplication {
 	if handleFunc == nil {
 		handleFunc = func(i1 IOSession, i2 interface{}, u uint64) error {
@@ -88,19 +90,14 @@ func newTestAppWithCodec(t assert.TestingT,
 		}
 	}
 
-	opts = append(opts, WithAppSessionOptions(WithCodec(encoder, decoder)))
+	opts = append(opts, WithAppSessionOptions(WithSessionCodec(codec)))
 	app, err := NewApplication(address, handleFunc, opts...)
 	assert.NoError(t, err)
 	return app
 }
 
 func newTestIOSession(t *testing.T, opts ...Option) IOSession {
-	encoder, decoder := simple.NewStringCodec()
-	return newTestIOSessionWithCodec(t, encoder, decoder, opts...)
-}
-
-func newTestIOSessionWithCodec(t *testing.T, encoder codec.Encoder, decoder codec.Decoder, opts ...Option) IOSession {
-	opts = append(opts, WithCodec(encoder, decoder))
+	opts = append(opts, WithSessionCodec(simple.NewStringCodec()))
 	return NewIOSession(opts...)
 }
 

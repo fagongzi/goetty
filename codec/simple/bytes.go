@@ -1,30 +1,27 @@
 package simple
 
 import (
+	"io"
+
 	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/fagongzi/goetty/v2/codec"
 	"github.com/fagongzi/goetty/v2/codec/length"
 )
 
-// NewBytesCodec returns a bytes codec
-func NewBytesCodec() (codec.Encoder, codec.Decoder) {
-	c := &bytesCodec{}
-	return length.New(c, c)
+// NewBytesCodec returns a codec to used to encode and decode []byte. It used lengthCodec to add a length
+// field to head.
+func NewBytesCodec() codec.Codec {
+	return length.New(&bytesCodec{})
 }
 
 type bytesCodec struct {
 }
 
-func (c bytesCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
-	_, data, err := in.ReadMarkedBytes()
-	if err != nil {
-		return false, nil, err
-	}
-
-	return true, data, nil
+func (c *bytesCodec) Decode(in *buf.ByteBuf) (interface{}, bool, error) {
+	return in.ReadMarkedData(), true, nil
 }
 
-func (c bytesCodec) Encode(data interface{}, out *buf.ByteBuf) error {
+func (c *bytesCodec) Encode(data interface{}, out *buf.ByteBuf, conn io.Writer) error {
 	bytes, _ := data.([]byte)
 	out.Write(bytes)
 	return nil
