@@ -56,13 +56,6 @@ func WithSessionAllocator(allocator buf.Allocator) Option {
 	}
 }
 
-// WithSessionConnOptionFunc set conn options func
-func WithSessionConnOptionFunc(connOptionFunc func(net.Conn)) Option {
-	return func(bio *baseIO) {
-		bio.options.connOptionFunc = connOptionFunc
-	}
-}
-
 // WithSessionCodec set codec for IOSession
 func WithSessionCodec(codec codec.Codec) Option {
 	return func(bio *baseIO) {
@@ -145,7 +138,6 @@ type baseIO struct {
 		codec                             codec.Codec
 		readBufSize, writeBufSize         int
 		readCopyBufSize, writeCopyBufSize int
-		connOptionFunc                    func(net.Conn)
 		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
 	}
@@ -192,9 +184,6 @@ func (bio *baseIO) adjust() {
 	}
 	if bio.options.releaseMsgFunc == nil {
 		bio.options.releaseMsgFunc = func(any) {}
-	}
-	if bio.options.connOptionFunc == nil {
-		bio.options.connOptionFunc = func(net.Conn) {}
 	}
 }
 
@@ -431,9 +420,6 @@ func (bio *baseIO) getState() int32 {
 }
 
 func (bio *baseIO) initConn() {
-	if bio.options.connOptionFunc != nil {
-		bio.options.connOptionFunc(bio.conn)
-	}
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize, buf.WithMemAllocator(bio.options.allocator))
