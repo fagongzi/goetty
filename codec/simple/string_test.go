@@ -10,12 +10,9 @@ import (
 func TestStringCodec(t *testing.T) {
 	v := "hello world"
 	buf := buf.NewByteBuf(32)
-
-	encoder, decoder := NewStringCodec()
-
-	assert.NoError(t, encoder.Encode(v, buf), "TestStringCodec failed")
-
-	completed, readed, err := decoder.Decode(buf)
+	codec := NewStringCodec()
+	assert.NoError(t, codec.Encode(v, buf, nil), "TestStringCodec failed")
+	readed, completed, err := codec.Decode(buf)
 	assert.NoError(t, err, "TestStringCodec failed")
 	assert.True(t, completed, "TestStringCodec failed")
 	assert.Equal(t, v, readed, "TestStringCodec failed")

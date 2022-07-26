@@ -2,22 +2,19 @@ package length
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/fagongzi/goetty/v2/codec"
 )
 
 const (
-	// FieldLength field length bytes
-	FieldLength = 4
-
-	// DefaultMaxBodySize max default body size, 10M
-	DefaultMaxBodySize = 1024 * 1024 * 10
+	fieldLength        = 4
+	defaultMaxBodySize = 1024 * 1024 * 10
 )
 
 type lengthCodec struct {
-	baseDecoder         codec.Decoder
-	baseEncoder         codec.Encoder
+	baseCodec           codec.Codec
 	lengthFieldOffset   int
 	lengthAdjustment    int
 	initialBytesToStrip int
@@ -25,8 +22,8 @@ type lengthCodec struct {
 }
 
 // New returns a default IntLengthFieldBased codec
-func New(baseEncoder codec.Encoder, baseDecoder codec.Decoder) (codec.Encoder, codec.Decoder) {
-	return NewWithSize(baseEncoder, baseDecoder, 0, 0, 0, DefaultMaxBodySize)
+func New(baseCodec codec.Codec) codec.Codec {
+	return NewWithSize(baseCodec, 0, 0, 0, defaultMaxBodySize)
 }
 
 // NewWithSize  create IntLengthFieldBased codec
@@ -36,56 +33,51 @@ func New(baseEncoder codec.Encoder, baseDecoder codec.Decoder) (codec.Encoder, c
 // 2. -4:                                             base decoder received: 4(length) + body
 // 3. -(4 + lengthFieldOffset):                       base decoder received: lengthFieldOffset + 4(length) + body
 // 4. -(4 + lengthFieldOffset + initialBytesToStrip): base decoder received: initialBytesToStrip + lengthFieldOffset + 4(length)
-func NewWithSize(baseEncoder codec.Encoder, baseDecoder codec.Decoder, lengthFieldOffset, lengthAdjustment, initialBytesToStrip, maxBodySize int) (codec.Encoder, codec.Decoder) {
-	c := &lengthCodec{
-		baseEncoder:         baseEncoder,
-		baseDecoder:         baseDecoder,
+func NewWithSize(baseCodec codec.Codec, lengthFieldOffset, lengthAdjustment, initialBytesToStrip, maxBodySize int) codec.Codec {
+	return &lengthCodec{
+		baseCodec:           baseCodec,
 		lengthFieldOffset:   lengthFieldOffset,
 		lengthAdjustment:    lengthAdjustment,
 		initialBytesToStrip: initialBytesToStrip,
 		maxBodySize:         maxBodySize,
 	}
-
-	return c, c
 }
 
-func (c *lengthCodec) Decode(in *buf.ByteBuf) (bool, interface{}, error) {
+func (c *lengthCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
 	readable := in.Readable()
 
-	minFrameLength := c.initialBytesToStrip + c.lengthFieldOffset + FieldLength
+	minFrameLength := c.initialBytesToStrip + c.lengthFieldOffset + fieldLength
 	if readable < minFrameLength {
-		return false, nil, nil
+		return nil, false, nil
 	}
 
-	length, err := in.PeekInt(c.initialBytesToStrip + c.lengthFieldOffset)
-	if err != nil {
-		return true, nil, err
-	}
-
+	length := in.PeekInt(c.initialBytesToStrip + c.lengthFieldOffset)
 	if length > c.maxBodySize {
-		return false, nil, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
+		return nil, false, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
 	}
 
 	skip := minFrameLength + c.lengthAdjustment
 	minFrameLength += length
 	if readable < minFrameLength {
-		return false, nil, nil
+		return nil, false, nil
 	}
 
 	in.Skip(skip)
-	in.MarkN(length)
-	return c.baseDecoder.Decode(in)
+	in.SetMarkIndex(length + in.GetReadIndex())
+	return c.baseCodec.Decode(in)
 }
 
-func (c *lengthCodec) Encode(data interface{}, out *buf.ByteBuf) error {
-	idx := out.GetWriteIndex()
-	out.Expansion(4)
-	out.SetWriterIndex(idx + 4)
-	err := c.baseEncoder.Encode(data, out)
+func (c *lengthCodec) Encode(message any, out *buf.ByteBuf, conn io.Writer) error {
+	oldIndex := out.GetWriteIndex()
+	out.Grow(4)
+	out.SetWriteIndex(oldIndex + 4)
+	err := c.baseCodec.Encode(message, out, conn)
 	if err != nil {
 		return err
 	}
-
-	buf.Int2BytesTo(out.GetWriteIndex()-idx-4, out.RawBuf()[idx:])
+	newIndex := out.GetWriteIndex()
+	out.SetWriteIndex(oldIndex)
+	out.WriteInt(newIndex - oldIndex - 4)
+	out.SetWriteIndex(newIndex)
 	return nil
 }

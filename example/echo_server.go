@@ -16,9 +16,8 @@ type EchoServer struct {
 // NewEchoServer create new server
 func NewEchoServer(addr string) *EchoServer {
 	svr := &EchoServer{}
-	encoder, decoder := simple.NewStringCodec()
 	app, err := goetty.NewApplication(addr, svr.handle,
-		goetty.WithAppSessionOptions(goetty.WithCodec(encoder, decoder)))
+		goetty.WithAppSessionOptions(goetty.WithSessionCodec(simple.NewStringCodec())))
 	if err != nil {
 		log.Panicf("start server failed with %+v", err)
 	}
@@ -39,10 +38,10 @@ func (s *EchoServer) Stop() error {
 	return s.app.Stop()
 }
 
-func (s *EchoServer) handle(session goetty.IOSession, msg interface{}, received uint64) error {
-	log.Printf("received %+v from %s, already received %d msgs",
-		msg,
-		session.RemoteAddr(),
+func (s *EchoServer) handle(session goetty.IOSession, message any, received uint64) error {
+	log.Printf("received %+v from %s, already received %d messages",
+		message,
+		session.RemoteAddress(),
 		received)
-	return session.Write(msg, goetty.WriteOptions{Flush: true})
+	return session.Write(message, goetty.WriteOptions{Flush: true})
 }

@@ -20,9 +20,8 @@ func NewEchoClient(serverAddr string) (*EchoClient, error) {
 		serverAddr: serverAddr,
 	}
 
-	encoder, decoder := simple.NewStringCodec()
-	c.conn = goetty.NewIOSession(goetty.WithCodec(encoder, decoder))
-	_, err := c.conn.Connect(serverAddr, time.Second*3)
+	c.conn = goetty.NewIOSession(goetty.WithSessionCodec(simple.NewStringCodec()))
+	err := c.conn.Connect(serverAddr, time.Second*3)
 	return c, err
 }
 

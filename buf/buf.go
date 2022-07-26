@@ -1,136 +1,43 @@
 package buf
 
 import (
-	"encoding/binary"
-	"errors"
+	"fmt"
 	"io"
 
 	"github.com/fagongzi/util/hack"
 )
 
 const (
-	minScale = 128
+	defaultMinGrowSize      = 256
+	defaultIOCopyBufferSize = 1024 * 4
 )
 
-//ReadN read n bytes from a reader
-func ReadN(r io.Reader, n int) ([]byte, error) {
-	data := make([]byte, n)
-	_, err := r.Read(data)
+// Option bytebuf option
+type Option func(*ByteBuf)
 
-	if err != nil {
-		return nil, err
+// WithMemAllocator Set the memory allocator, when Bytebuf is initialized, it needs to
+// allocate a []byte of the size specified by capacity from memory. When ByteBuf.Release
+// is called, the memory will be freed back to the allocator.
+func WithMemAllocator(alloc Allocator) Option {
+	return func(bb *ByteBuf) {
+		bb.options.alloc = alloc
 	}
-
-	return data, nil
 }
 
-//ReadInt read a int value from a reader
-func ReadInt(r io.Reader) (int, error) {
-	data, err := ReadN(r, 4)
-
-	if err != nil {
-		return 0, err
+// WithMinGowSize set minimum Grow size. When there is not enough space left
+// in the Bytebuf, write data needs to be expanded.
+func WithMinGowSize(minGrowSize int) Option {
+	return func(bb *ByteBuf) {
+		bb.options.minGrowSize = minGrowSize
 	}
-
-	return Byte2Int(data), nil
 }
 
-// Byte2Int byte array to int value using big order
-func Byte2Int(data []byte) int {
-	return (int(data[0])&0xff)<<24 |
-		(int(data[1])&0xff)<<16 |
-		(int(data[2])&0xff)<<8 |
-		(int(data[3]) & 0xff)
-}
-
-// Byte2Int64 byte array to int64 value using big order
-func Byte2Int64(data []byte) int64 {
-	return (int64(data[0])&0xff)<<56 |
-		(int64(data[1])&0xff)<<48 |
-		(int64(data[2])&0xff)<<40 |
-		(int64(data[3])&0xff)<<32 |
-		(int64(data[4])&0xff)<<24 |
-		(int64(data[5])&0xff)<<16 |
-		(int64(data[6])&0xff)<<8 |
-		(int64(data[7]) & 0xff)
-}
-
-// Byte2Uint64 byte array to int64 value using big order
-func Byte2Uint64(data []byte) uint64 {
-	return binary.BigEndian.Uint64(data)
-}
-
-// Byte2Uint16 byte array to uint16 value using big order
-func Byte2Uint16(data []byte) uint16 {
-	return binary.BigEndian.Uint16(data)
-}
-
-// Byte2Uint32 byte array to uint32 value using big order
-func Byte2Uint32(data []byte) uint32 {
-	return binary.BigEndian.Uint32(data)
-}
-
-// Int2BytesTo int value to bytes array using big order
-func Int2BytesTo(v int, ret []byte) {
-	ret[0] = byte(v >> 24)
-	ret[1] = byte(v >> 16)
-	ret[2] = byte(v >> 8)
-	ret[3] = byte(v)
-}
-
-// Int2Bytes int value to bytes array using big order
-func Int2Bytes(v int) []byte {
-	ret := make([]byte, 4)
-	Int2BytesTo(v, ret)
-	return ret
-}
-
-// Int64ToBytesTo int64 value to bytes array using big order
-func Int64ToBytesTo(v int64, ret []byte) {
-	ret[0] = byte(v >> 56)
-	ret[1] = byte(v >> 48)
-	ret[2] = byte(v >> 40)
-	ret[3] = byte(v >> 32)
-	ret[4] = byte(v >> 24)
-	ret[5] = byte(v >> 16)
-	ret[6] = byte(v >> 8)
-	ret[7] = byte(v)
-}
-
-// Uint64ToBytesTo uint64 value to bytes array using big order
-func Uint64ToBytesTo(v uint64, ret []byte) {
-	binary.BigEndian.PutUint64(ret, v)
-}
-
-// Int64ToBytes int64 value to bytes array using big order
-func Int64ToBytes(v int64) []byte {
-	ret := make([]byte, 8)
-	Int64ToBytesTo(v, ret)
-	return ret
-}
-
-// Uint32ToBytesTo uint32 value to bytes array using big order
-func Uint32ToBytesTo(v uint32, ret []byte) {
-	binary.BigEndian.PutUint32(ret, v)
-}
-
-// Uint32ToBytes uint32 value to bytes array using big order
-func Uint32ToBytes(v uint32) []byte {
-	ret := make([]byte, 4)
-	Uint32ToBytesTo(v, ret)
-	return ret
-}
-
-// Uint16ToBytesTo uint16 value to bytes array using big order
-func Uint16ToBytesTo(v uint16, ret []byte) {
-	binary.BigEndian.PutUint16(ret, v)
-}
-
-// Uint16ToBytes uint16 value to bytes array using big order
-func Uint16ToBytes(v uint16) []byte {
-	ret := make([]byte, 2)
-	Uint16ToBytesTo(v, ret)
-	return ret
+// WithIOCopyBufferSize set io copy buffer used to control how much data will written
+// at a time.
+func WithIOCopyBufferSize(value int) Option {
+	return func(bb *ByteBuf) {
+		bb.options.ioCopyBufferSize = value
+	}
 }
 
 // Slice the slice of byte buf
@@ -144,155 +51,96 @@ func (s Slice) Data() []byte {
 	return s.buf.buf[s.from:s.to]
 }
 
-// ByteBuf a buf with byte arrays
+var (
+	_ io.WriterTo   = (*ByteBuf)(nil)
+	_ io.Writer     = (*ByteBuf)(nil)
+	_ io.Reader     = (*ByteBuf)(nil)
+	_ io.ReaderFrom = (*ByteBuf)(nil)
+)
+
+// ByteBuf is a reusable buffer that holds an internal []byte and maintains 2 indexes for
+// read and write data.
 //
 // | discardable bytes  |   readable bytes   |   writeable bytes  |
 // |                    |                    |                    |
 // |                    |                    |                    |
 // 0      <=       readerIndex    <=     writerIndex    <=     capacity
 //
+// The ByteBuf implemented io.Reader, io.Writer, io.WriterTo, io.ReaderFrom interface
 type ByteBuf struct {
-	capacity    int
-	pool        Pool
 	buf         []byte // buf data, auto +/- size
 	readerIndex int
 	writerIndex int
 	markedIndex int
 
-	sinkTo io.Writer
+	options struct {
+		alloc            Allocator
+		minGrowSize      int
+		ioCopyBufferSize int
+	}
 }
 
-// ErrTooLarge too larger error
-var ErrTooLarge = errors.New("goetty.ByteBuf: too large")
-
-// NewByteBuf create a new bytebuf
-func NewByteBuf(capacity int) *ByteBuf {
-	return NewByteBufPool(capacity, getDefaultMP())
-}
-
-// NewByteBufPool create a new bytebuf using a mem pool
-func NewByteBufPool(capacity int, pool Pool) *ByteBuf {
-	return &ByteBuf{
-		capacity:    capacity,
-		buf:         pool.Alloc(capacity),
+// NewByteBuf create bytebuf with options
+func NewByteBuf(capacity int, opts ...Option) *ByteBuf {
+	b := &ByteBuf{
 		readerIndex: 0,
 		writerIndex: 0,
-		pool:        pool,
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	b.adjust()
+	b.buf = b.options.alloc.Alloc(capacity)
+	return b
+}
+
+func (b *ByteBuf) adjust() {
+	if b.options.alloc == nil {
+		b.options.alloc = newNonReusableAllocator()
+	}
+	if b.options.minGrowSize == 0 {
+		b.options.minGrowSize = defaultMinGrowSize
+	}
+	if b.options.ioCopyBufferSize == 0 {
+		b.options.ioCopyBufferSize = defaultIOCopyBufferSize
 	}
 }
 
-// WrapBytes wrap a bytes as a bytebuf
-func WrapBytes(data []byte) *ByteBuf {
-	return &ByteBuf{
-		capacity:    cap(data),
-		buf:         data,
-		readerIndex: 0,
-		writerIndex: len(data),
-		pool:        getDefaultMP(),
-	}
+// Close close the ByteBuf
+func (b *ByteBuf) Close() {
+	b.options.alloc.Free(b.buf)
+	b.buf = nil
 }
 
-// SetSinkTo set down stream sink writer
-func (b *ByteBuf) SetSinkTo(sinkTo io.Writer) {
-	b.sinkTo = sinkTo
-}
-
-// FlushToSink flush readable data to the sink
-func (b *ByteBuf) FlushToSink() (int, error) {
-	if b.Readable() > 0 {
-		defer func() {
-			b.readerIndex = b.writerIndex
-		}()
-		return b.WriteToSink(b.ReadableBytes(), 0)
-	}
-	return 0, nil
-}
-
-// WriteToSink write data to the sink io.writer
-func (b *ByteBuf) WriteToSink(data []byte, buf int) (int, error) {
-	if b.sinkTo == nil {
-		panic("stream not set")
-	}
-
-	written := 0
-	total := len(data)
-	if buf == 0 {
-		buf = 4096
-	}
-	var err error
-	for {
-		to := written + buf
-		if to > total {
-			to = total
-		}
-
-		n, e := b.sinkTo.Write(data[written:to])
-		if n < 0 {
-			panic("invalid write")
-		}
-		written += n
-		if e != nil {
-			err = e
-			break
-		}
-
-		if written == total {
-			break
-		}
-	}
-	return written, err
-}
-
-// Wrap wrap a bytes
-func (b *ByteBuf) Wrap(data []byte) {
-	b.Clear()
-	b.Release()
-	b.buf = data
-	b.writerIndex = len(data)
-}
-
-// RawBuf get the raw byte array
-func (b *ByteBuf) RawBuf() []byte {
-	return b.buf
-}
-
-// Clear reset the write and read index
-func (b *ByteBuf) Clear() {
+// Reset reset to reuse.
+func (b *ByteBuf) Reset() {
 	b.readerIndex = 0
 	b.writerIndex = 0
 	b.markedIndex = 0
 }
 
-// Release release buf
-func (b *ByteBuf) Release() {
-	b.pool.Free(b.buf)
-	b.buf = nil
-}
-
-// Resume resume the buf
-func (b *ByteBuf) Resume(capacity int) {
-	b.buf = b.pool.Alloc(b.capacity)
-}
-
-// Capacity get the capacity
-func (b *ByteBuf) Capacity() int {
-	return len(b.buf)
-}
-
-// SetReaderIndex set the read index
-func (b *ByteBuf) SetReaderIndex(newReaderIndex int) error {
-	if newReaderIndex < 0 || newReaderIndex > b.writerIndex {
-		return io.ErrShortBuffer
+// SetReadIndex set the reader index. The data in the [readIndex, writeIndex] that can be read.
+func (b *ByteBuf) SetReadIndex(readIndex int) {
+	if readIndex < 0 || readIndex > b.writerIndex {
+		panic(fmt.Sprintf("invalid readIndex %d, writeIndex %d", readIndex, b.writerIndex))
 	}
 
-	b.readerIndex = newReaderIndex
-
-	return nil
+	b.readerIndex = readIndex
 }
 
-// GetReaderIndex get the read index
-func (b *ByteBuf) GetReaderIndex() int {
+// GetReadIndex returns the read index
+func (b *ByteBuf) GetReadIndex() int {
 	return b.readerIndex
+}
+
+// SetWriteIndex set the write index. The data can write into range [writeIndex, len(buf)).
+func (b *ByteBuf) SetWriteIndex(writeIndex int) {
+	if writeIndex < b.readerIndex || writeIndex > b.capacity() {
+		panic(fmt.Sprintf("invalid writeIndex %d, capacity %d, readIndex %d",
+			writeIndex, b.capacity(), b.readerIndex))
+	}
+
+	b.writerIndex = writeIndex
 }
 
 // GetWriteIndex get the write index
@@ -300,96 +148,69 @@ func (b *ByteBuf) GetWriteIndex() int {
 	return b.writerIndex
 }
 
-// GetMarkerIndex returns markerIndex
-func (b *ByteBuf) GetMarkerIndex() int {
+// SetMarkIndex mark data in range [readIndex, markIndex)
+func (b *ByteBuf) SetMarkIndex(markIndex int) {
+	if markIndex > b.writerIndex || markIndex <= b.readerIndex {
+		panic(fmt.Sprintf("invalid markIndex %d, readIndex %d, writeIndex %d",
+			markIndex, b.readerIndex, b.writerIndex))
+	}
+	b.markedIndex = markIndex
+}
+
+// GetMarkIndex returns the markIndex.
+func (b *ByteBuf) GetMarkIndex() int {
 	return b.markedIndex
 }
 
-// GetMarkedRemind returns size in [readerIndex, markedIndex)
-func (b *ByteBuf) GetMarkedRemind() int {
+// ClearMark clear mark index
+func (b *ByteBuf) ClearMark() {
+	b.markedIndex = 0
+}
+
+// GetMarkedDataLen returns len of marked data
+func (b *ByteBuf) GetMarkedDataLen() int {
 	return b.markedIndex - b.readerIndex
 }
 
-// GetMarkedRemindData returns data in [readerIndex, markedIndex)
-func (b *ByteBuf) GetMarkedRemindData() []byte {
-	return b.buf[b.readerIndex:b.markedIndex]
-}
-
-// SetWriterIndex set the write index
-func (b *ByteBuf) SetWriterIndex(newWriterIndex int) error {
-	if newWriterIndex < b.readerIndex || newWriterIndex > b.Capacity() {
-		return io.ErrShortBuffer
+// Skip skip [readIndex, readIndex+n).
+func (b *ByteBuf) Skip(n int) {
+	if n > b.Readable() {
+		panic(fmt.Sprintf("invalid skip %d", n))
 	}
-
-	b.writerIndex = newWriterIndex
-
-	return nil
+	b.readerIndex += n
 }
 
-// MarkWrite mark current write index
-func (b *ByteBuf) MarkWrite() {
-	b.markedIndex = b.writerIndex
-}
-
-// ResetWrite use markindex to reset write index
-func (b *ByteBuf) ResetWrite() {
-	if b.markedIndex < 0 {
-		panic("invalid marked index")
-	}
-	b.writerIndex = b.markedIndex
-	b.markedIndex = -1
-}
-
-// WrittenDataAfterMark returns the data referance after mark write
-func (b *ByteBuf) WrittenDataAfterMark() Slice {
-	return Slice{b.markedIndex, b.writerIndex, b}
-}
-
-// Slice returns a read only bytebuf slice
+// Slice returns a read only bytebuf slice. ByteBuf may be continuously written to, causing the
+// internal buf to reapply, thus invalidating the sliced data in buf[s:e]. Slice only records the
+// starting location of the data, and it is safe to read the data when it is certain that the ByteBuf
+// will not be written to.
 func (b *ByteBuf) Slice(from, to int) Slice {
+	if from >= to || to > b.writerIndex {
+		panic(fmt.Sprintf("invalid slice by range [%d, %d), writeIndex %d",
+			from, to, b.writerIndex))
+	}
 	return Slice{from, to, b}
 }
 
-// MarkN mark a index offset based by currently read index
-func (b *ByteBuf) MarkN(n int) error {
-	return b.MarkIndex(b.readerIndex + n)
-}
-
-// MarkIndex mark a index
-func (b *ByteBuf) MarkIndex(index int) error {
-	if index > b.Capacity() || index <= b.readerIndex {
-		return io.ErrShortBuffer
+// RawSlice returns raw buf in range [from, to).  This method requires special care, as the ByteBuf may
+// free the internal []byte after the data is written again, causing the slice to fail.
+func (b *ByteBuf) RawSlice(from, to int) []byte {
+	if from >= to || to > b.writerIndex {
+		panic(fmt.Sprintf("invalid slice by range [%d, %d), writeIndex %d",
+			from, to, b.writerIndex))
 	}
-
-	b.markedIndex = index
-	return nil
+	return b.buf[from:to]
 }
 
-// Skip skip bytes, after this option, read index will change to readerIndex+n
-func (b *ByteBuf) Skip(n int) error {
-	if n > b.Readable() {
-		return io.ErrShortBuffer
-	}
-
-	b.readerIndex += n
-	return nil
-}
-
-// Readable current readable byte size
+// Readable return the number of bytes that can be read.
 func (b *ByteBuf) Readable() int {
 	return b.writerIndex - b.readerIndex
 }
 
-// ReadableBytes returns the readable bytes
-func (b *ByteBuf) ReadableBytes() []byte {
-	return b.buf[b.readerIndex:b.writerIndex]
-}
-
 // ReadByte read a byte from buf
-// return byte value, error
 func (b *ByteBuf) ReadByte() (byte, error) {
 	if b.Readable() == 0 {
-		return 0, nil
+		return 0, io.EOF
 	}
 
 	v := b.buf[b.readerIndex]
@@ -397,150 +218,243 @@ func (b *ByteBuf) ReadByte() (byte, error) {
 	return v, nil
 }
 
-// ReadRawBytes read bytes from buf without mem copy
-// Note. If used complete, you must call b.Skip(n) to reset reader index
-func (b *ByteBuf) ReadRawBytes(n int) (int, []byte, error) {
-	if n > b.Readable() {
-		return 0, nil, nil
+// MustReadByte is similar to ReadByte, buf panic if error retrurned
+func (b *ByteBuf) MustReadByte() byte {
+	v, err := b.ReadByte()
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// ReadBytes read bytes from buf. It's will copy the data to a new byte array.
+func (b *ByteBuf) ReadBytes(n int) (readed int, data []byte) {
+	readed = n
+	if readed > b.Readable() {
+		readed = b.Readable()
+	}
+	if readed == 0 {
+		return
 	}
 
-	return n, b.buf[b.readerIndex : b.readerIndex+n], nil
+	data = make([]byte, readed)
+	copy(data, b.buf[b.readerIndex:b.readerIndex+readed])
+	b.readerIndex += readed
+	return
 }
 
-// ReadBytes read bytes from buf
-// It's will copy the data to a new byte array
-// return readedBytesCount, byte array, error
-func (b *ByteBuf) ReadBytes(n int) (int, []byte, error) {
-	data := make([]byte, n)
-	n, err := b.Read(data)
-	return n, data, err
+// ReadMarkedData returns [readIndex, markIndex) data
+func (b *ByteBuf) ReadMarkedData() []byte {
+	_, data := b.ReadBytes(b.GetMarkedDataLen())
+	b.ClearMark()
+	return data
 }
 
-// ReadAll read all data from buf
-// It's will copy the data to a new byte array
-// return readedBytesCount, byte array, error
-func (b *ByteBuf) ReadAll() (int, []byte, error) {
+// ReadAll read all readable bytes.
+func (b *ByteBuf) ReadAll() (readed int, data []byte) {
 	return b.ReadBytes(b.Readable())
 }
 
-// ReadMarkedBytes read data from buf in the range [readerIndex, markedIndex)
-func (b *ByteBuf) ReadMarkedBytes() (int, []byte, error) {
-	return b.ReadBytes(b.GetMarkedRemind())
-}
-
-// MarkedBytesReaded reset reader index
-func (b *ByteBuf) MarkedBytesReaded() {
-	b.readerIndex = b.markedIndex
-}
-
-// Read read bytes, return n, nil or 0, io.EOF is successful
-// return readedBytesCount, error
-func (b *ByteBuf) Read(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
+// ReadInt get int value from buf
+func (b *ByteBuf) ReadInt() int {
+	if b.Readable() < 4 {
+		panic(fmt.Sprintf("read int, but readable is %d", b.Readable()))
 	}
 
-	count := b.Readable()
-	if count == 0 {
+	b.readerIndex += 4
+	return Byte2Int(b.buf[b.readerIndex-4 : b.readerIndex])
+}
+
+// PeekInt is similar to ReadInt, but keep readIndex not changed.
+func (b *ByteBuf) PeekInt(offset int) int {
+	if b.Readable() < 4 {
+		panic(fmt.Sprintf("peek int, but readable is %d", b.Readable()))
+	}
+
+	start := b.readerIndex + offset
+	return Byte2Int(b.buf[start : start+4])
+}
+
+// ReadUint16 get uint16 value from buf
+func (b *ByteBuf) ReadUint16() uint16 {
+	if b.Readable() < 2 {
+		panic(fmt.Sprintf("read uint16, but readable is %d", b.Readable()))
+	}
+
+	b.readerIndex += 2
+	return Byte2Uint16(b.buf[b.readerIndex-2 : b.readerIndex])
+}
+
+// ReadUint32 get uint32 value from buf
+func (b *ByteBuf) ReadUint32() uint32 {
+	if b.Readable() < 4 {
+		panic(fmt.Sprintf("read uint32, but readable is %d", b.Readable()))
+	}
+
+	b.readerIndex += 4
+	return Byte2Uint32(b.buf[b.readerIndex-4 : b.readerIndex])
+}
+
+// ReadInt64 get int64 value from buf
+func (b *ByteBuf) ReadInt64() int64 {
+	if b.Readable() < 8 {
+		panic(fmt.Sprintf("read int64, but readable is %d", b.Readable()))
+	}
+
+	b.readerIndex += 8
+	return Byte2Int64(b.buf[b.readerIndex-8 : b.readerIndex])
+}
+
+// ReadUint64 get uint64 value from buf
+func (b *ByteBuf) ReadUint64() uint64 {
+	if b.Readable() < 8 {
+		panic(fmt.Sprintf("read uint64, but readable is %d", b.Readable()))
+	}
+
+	b.readerIndex += 8
+	return Byte2Uint64(b.buf[b.readerIndex-8 : b.readerIndex])
+}
+
+// Writeable return how many bytes can be wirte into buf
+func (b *ByteBuf) Writeable() int {
+	return b.capacity() - b.writerIndex
+}
+
+// MustWrite is similar to Write, but panic if encounter an error.
+func (b *ByteBuf) MustWrite(value []byte) {
+	if _, err := b.Write(value); err != nil {
+		panic(err)
+	}
+}
+
+// WriteUint16 write uint16 into buf
+func (b *ByteBuf) WriteUint16(v uint16) {
+	b.Grow(2)
+	Uint16ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+2])
+	b.writerIndex += 2
+}
+
+// WriteInt write int into buf
+func (b *ByteBuf) WriteInt(v int) {
+	b.Grow(4)
+	Int2BytesTo(v, b.buf[b.writerIndex:b.writerIndex+4])
+	b.writerIndex += 4
+}
+
+// WriteUint32 write uint32 into buf
+func (b *ByteBuf) WriteUint32(v uint32) {
+	b.Grow(4)
+	Uint32ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+4])
+	b.writerIndex += 4
+}
+
+// WriteInt64 write int64 into buf
+func (b *ByteBuf) WriteInt64(v int64) {
+	b.Grow(8)
+	Int64ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+8])
+	b.writerIndex += 8
+}
+
+// WriteUint64 write uint64 into buf
+func (b *ByteBuf) WriteUint64(v uint64) {
+	b.Grow(8)
+	Uint64ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+8])
+	b.writerIndex += 8
+}
+
+// WriteByte write a byte value into buf.
+func (b *ByteBuf) WriteByte(v byte) error {
+	b.Grow(1)
+	b.buf[b.writerIndex] = v
+	b.writerIndex++
+	return nil
+}
+
+// MustWriteByte is similar to WriteByte, but panic if has any error
+func (b *ByteBuf) MustWriteByte(v byte) {
+	if err := b.WriteByte(v); err != nil {
+		panic(err)
+	}
+}
+
+// WriteString write a string value to buf
+func (b *ByteBuf) WriteString(v string) {
+	b.Write(hack.StringToSlice(v))
+}
+
+// Grow grow buf size
+func (b *ByteBuf) Grow(n int) {
+	if free := b.Writeable(); free < n {
+		current := b.capacity()
+		step := current / 2
+		if step < b.options.minGrowSize {
+			step = b.options.minGrowSize
+		}
+
+		size := current + (n - free)
+		target := current
+		for {
+			if target > size {
+				break
+			}
+
+			target += step
+		}
+
+		newBuf := b.options.alloc.Alloc(target)
+		offset := b.writerIndex - b.readerIndex
+		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
+		b.readerIndex = 0
+		b.writerIndex = offset
+		b.options.alloc.Free(b.buf)
+		b.buf = newBuf
+	}
+}
+
+// Write implemented io.Writer interface
+func (b *ByteBuf) Write(src []byte) (int, error) {
+	n := len(src)
+	b.Grow(n)
+	copy(b.buf[b.writerIndex:], src)
+	b.writerIndex += n
+	return n, nil
+}
+
+// WriteTo implemented io.WriterTo interface
+func (b *ByteBuf) WriteTo(dst io.Writer) (int64, error) {
+	n := b.Readable()
+	if n == 0 {
 		return 0, io.EOF
 	}
-
-	size := len(p)
-	if len(p) > count {
-		size = count
+	if err := WriteTo(b.buf[b.readerIndex:b.writerIndex], dst, b.options.ioCopyBufferSize); err != nil {
+		return 0, err
 	}
-	n = copy(p, b.buf[b.readerIndex:b.readerIndex+size])
+	b.readerIndex = b.writerIndex
+	return int64(n), nil
+}
+
+// Read implemented io.Reader interface. return n, nil or 0, io.EOF is successful
+func (b *ByteBuf) Read(dst []byte) (int, error) {
+	if len(dst) == 0 {
+		return 0, nil
+	}
+	n := b.Readable()
+	if n == 0 {
+		return 0, io.EOF
+	}
+	if n > len(dst) {
+		n = len(dst)
+	}
+	copy(dst, b.buf[b.readerIndex:b.readerIndex+n])
 	b.readerIndex += n
 	return n, nil
 }
 
-// ReadInt get int value from buf
-func (b *ByteBuf) ReadInt() (int, error) {
-	if b.Readable() < 4 {
-		return 0, io.ErrShortBuffer
-	}
-
-	b.readerIndex += 4
-	return Byte2Int(b.buf[b.readerIndex-4 : b.readerIndex]), nil
-}
-
-// ReadUint16 get uint16 value from buf
-func (b *ByteBuf) ReadUint16() (uint16, error) {
-	if b.Readable() < 2 {
-		return 0, io.ErrShortBuffer
-	}
-
-	b.readerIndex += 2
-	return Byte2Uint16(b.buf[b.readerIndex-2 : b.readerIndex]), nil
-}
-
-// ReadUint32 get uint32 value from buf
-func (b *ByteBuf) ReadUint32() (uint32, error) {
-	if b.Readable() < 4 {
-		return 0, io.ErrShortBuffer
-	}
-
-	b.readerIndex += 4
-	return Byte2Uint32(b.buf[b.readerIndex-4 : b.readerIndex]), nil
-}
-
-// ReadInt64 get int64 value from buf
-func (b *ByteBuf) ReadInt64() (int64, error) {
-	if b.Readable() < 8 {
-		return 0, io.ErrShortBuffer
-	}
-
-	b.readerIndex += 8
-	return Byte2Int64(b.buf[b.readerIndex-8 : b.readerIndex]), nil
-}
-
-// ReadUint64 get uint64 value from buf
-func (b *ByteBuf) ReadUint64() (uint64, error) {
-	if b.Readable() < 8 {
-		return 0, io.ErrShortBuffer
-	}
-
-	b.readerIndex += 8
-	return Byte2Uint64(b.buf[b.readerIndex-8 : b.readerIndex]), nil
-}
-
-// PeekInt get int value from buf based on currently read index, after read, read index not modifed
-func (b *ByteBuf) PeekInt(offset int) (int, error) {
-	if b.Readable() < 4+offset {
-		return 0, io.ErrShortBuffer
-	}
-
-	start := b.readerIndex + offset
-	return Byte2Int(b.buf[start : start+4]), nil
-}
-
-// PeekByte get byte value from buf based on currently read index, after read, read index not modifed
-func (b *ByteBuf) PeekByte(offset int) (byte, error) {
-	if b.Readable() < offset || offset < 0 {
-		return 0, io.ErrShortBuffer
-	}
-
-	return b.buf[b.readerIndex+offset], nil
-}
-
-// PeekN get bytes from buf based on currently read index, after read, read index not modifed
-func (b *ByteBuf) PeekN(offset int, n int) ([]byte, error) {
-	if b.Readable() < n+offset {
-		return nil, io.ErrShortBuffer
-	}
-
-	start := b.readerIndex + offset
-	return b.buf[start : start+n], nil
-}
-
-// ReadFrom reads data from r until EOF and appends it to the buffer, growing
-// the buffer as needed. The return value n is the number of bytes read. Any
-// error except io.EOF encountered during the read is also returned. If the
-// buffer becomes too large, ReadFrom will panic with ErrTooLarge.
+// ReadFrom implemented io.ReaderFrom interface
 func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 	for {
-		b.Expansion(minScale)
-		m, e := r.Read(b.buf[b.writerIndex : b.writerIndex+minScale])
+		b.Grow(b.options.ioCopyBufferSize)
+		m, e := r.Read(b.buf[b.writerIndex : b.writerIndex+b.options.ioCopyBufferSize])
 		if m < 0 {
 			panic("bug: negative Read")
 		}
@@ -560,180 +474,39 @@ func (b *ByteBuf) ReadFrom(r io.Reader) (n int64, err error) {
 	}
 }
 
-// Writeable return how many bytes can be wirte into buf
-func (b *ByteBuf) Writeable() int {
-	return b.Capacity() - b.writerIndex
+func (b *ByteBuf) capacity() int {
+	return len(b.buf)
 }
 
-// Write appends the contents of p to the buffer, growing the buffer as
-// needed.
-func (b *ByteBuf) Write(p []byte) (int, error) {
-	n := len(p)
-	b.Expansion(n)
-	copy(b.buf[b.writerIndex:], p)
-	b.writerIndex += n
-	return n, nil
-}
+// WriteTo write data to io.Writer, copyBuffer used to control how much data will written
+// at a time.
+func WriteTo(data []byte, conn io.Writer, copyBuffer int) error {
+	if copyBuffer == 0 || copyBuffer > len(data) {
+		copyBuffer = len(data)
+	}
 
-// WriteInt write int value to buf using big order
-// return write bytes count, error
-func (b *ByteBuf) WriteInt(v int) (n int, err error) {
-	b.Expansion(4)
-	Int2BytesTo(v, b.buf[b.writerIndex:b.writerIndex+4])
-	b.writerIndex += 4
-	return 4, nil
-}
+	written := 0
+	total := len(data)
+	var err error
+	for {
+		to := written + copyBuffer
+		if to > total {
+			to = total
+		}
 
-// WriteUint16 write uint16 value to buf using big order
-// return write bytes count, error
-func (b *ByteBuf) WriteUint16(v uint16) (n int, err error) {
-	b.Expansion(2)
-	Uint16ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+2])
-	b.writerIndex += 2
-	return 2, nil
-}
+		n, e := conn.Write(data[written:to])
+		if n < 0 {
+			panic("invalid write")
+		}
+		written += n
+		if e != nil {
+			err = e
+			break
+		}
 
-// WriteUint32 write uint32 value to buf using big order
-// return write bytes count, error
-func (b *ByteBuf) WriteUint32(v uint32) (n int, err error) {
-	b.Expansion(4)
-	Uint32ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+4])
-	b.writerIndex += 4
-	return 4, nil
-}
-
-// WriteInt64 write int64 value to buf using big order
-// return write bytes count, error
-func (b *ByteBuf) WriteInt64(v int64) (n int, err error) {
-	b.Expansion(8)
-	Int64ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+8])
-	b.writerIndex += 8
-	return 8, nil
-}
-
-// WriteUint64 write uint64 value to buf using big order
-// return write bytes count, error
-func (b *ByteBuf) WriteUint64(v uint64) (n int, err error) {
-	b.Expansion(8)
-	Uint64ToBytesTo(v, b.buf[b.writerIndex:b.writerIndex+8])
-	b.writerIndex += 8
-	return 8, nil
-}
-
-// WriteByte write a byte value to buf
-func (b *ByteBuf) WriteByte(v byte) error {
-	b.Expansion(1)
-	b.buf[b.writerIndex] = v
-	b.writerIndex++
-	return nil
-}
-
-// WriteString write a string value to buf
-func (b *ByteBuf) WriteString(v string) error {
-	_, err := b.Write(hack.StringToSlice(v))
+		if written == total {
+			break
+		}
+	}
 	return err
-}
-
-// WriteByteBuf write all readable data to this buf
-func (b *ByteBuf) WriteByteBuf(from *ByteBuf) error {
-	size := from.Readable()
-	b.Expansion(size)
-	copy(b.buf[b.writerIndex:b.writerIndex+size], from.buf[from.readerIndex:from.writerIndex])
-	b.writerIndex += size
-	from.readerIndex = from.writerIndex
-	return nil
-}
-
-// Expansion expansion buf size
-func (b *ByteBuf) Expansion(n int) {
-	if free := b.Writeable(); free < n {
-		current := b.Capacity()
-		step := current / 2
-		if step < minScale {
-			step = minScale
-		}
-
-		size := current + (n - free)
-		target := current
-		for {
-			if target > size {
-				break
-			}
-
-			target += step
-		}
-
-		newBuf := b.pool.Alloc(target)
-		offset := b.writerIndex - b.readerIndex
-		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
-		b.readerIndex = 0
-		b.writerIndex = offset
-		b.pool.Free(b.buf)
-		b.buf = newBuf
-	}
-}
-
-// MustWriteByte must write byte value
-func MustWriteByte(buffer *ByteBuf, value byte) {
-	if err := buffer.WriteByte(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteInt64 must write int64 value
-func MustWriteInt64(buffer *ByteBuf, value int64) {
-	if _, err := buffer.WriteInt64(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteUint64 must write uint64 value
-func MustWriteUint64(buffer *ByteBuf, value uint64) {
-	if _, err := buffer.WriteUint64(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteUint32 must write uint32 value
-func MustWriteUint32(buffer *ByteBuf, value uint32) {
-	if _, err := buffer.WriteUint32(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteInt must write int value
-func MustWriteInt(buffer *ByteBuf, value int) {
-	if _, err := buffer.WriteInt(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteString must write string value
-func MustWriteString(buffer *ByteBuf, value string) {
-	if err := buffer.WriteString(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWrite must write bytes value
-func MustWrite(buffer *ByteBuf, value []byte) {
-	if _, err := buffer.Write(value); err != nil {
-		panic(err)
-	}
-}
-
-// MustWriteToSink must write bytes to sink
-func MustWriteToSink(buffer *ByteBuf, value []byte, buf int) {
-	_, err := buffer.WriteToSink(value, buf)
-	if err != nil && err != io.EOF {
-		panic(err)
-	}
-}
-
-// MustFlushToSink must flush bytes to sink
-func MustFlushToSink(buffer *ByteBuf) {
-	_, err := buffer.FlushToSink()
-	if err != nil && err != io.EOF {
-		panic(err)
-	}
 }

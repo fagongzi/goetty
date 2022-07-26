@@ -1,35 +1,47 @@
 package length
 
 import (
+	"io"
 	"testing"
 
 	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec/raw"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestEncode(t *testing.T) {
-	baseEncoder, baseDecoder := raw.New()
-
-	encoder, _ := New(baseEncoder, baseDecoder)
+	baseCodec := &bytesCodec{}
+	codec := New(baseCodec)
 	buf := buf.NewByteBuf(32)
-	err := encoder.Encode([]byte("hello"), buf)
+	err := codec.Encode([]byte("hello"), buf, nil)
 	assert.NoError(t, err)
 
-	err = encoder.Encode([]byte("world"), buf)
+	err = codec.Encode([]byte("world"), buf, nil)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 18, buf.Readable())
 
-	n, _ := buf.ReadInt()
+	n := buf.ReadInt()
 	assert.Equal(t, 5, n)
 
-	_, v, _ := buf.ReadBytes(n)
+	_, v := buf.ReadBytes(n)
 	assert.Equal(t, "hello", string(v))
 
-	n, _ = buf.ReadInt()
+	n = buf.ReadInt()
 	assert.Equal(t, 5, n)
 
-	_, v, _ = buf.ReadBytes(n)
+	_, v = buf.ReadBytes(n)
 	assert.Equal(t, "world", string(v))
+}
+
+type bytesCodec struct {
+}
+
+func (c *bytesCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+	return in.ReadMarkedData(), true, nil
+}
+
+func (c *bytesCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
+	bytes, _ := data.([]byte)
+	out.Write(bytes)
+	return nil
 }

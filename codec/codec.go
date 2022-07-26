@@ -1,37 +1,15 @@
 package codec
 
 import (
+	"io"
+
 	"github.com/fagongzi/goetty/v2/buf"
 )
 
-// Encoder encode interface
-type Encoder interface {
-	Encode(data interface{}, out *buf.ByteBuf) error
-}
-
-// Decoder decoder interface
-type Decoder interface {
-	Decode(in *buf.ByteBuf) (complete bool, msg interface{}, err error)
-}
-
-type emptyDecoder struct{}
-
-func (e *emptyDecoder) Decode(in *buf.ByteBuf) (complete bool, msg interface{}, err error) {
-	return true, in, nil
-}
-
-type emptyEncoder struct{}
-
-func (e *emptyEncoder) Encode(data interface{}, out *buf.ByteBuf) error {
-	return nil
-}
-
-// NewEmptyEncoder returns a empty encoder
-func NewEmptyEncoder() Encoder {
-	return &emptyEncoder{}
-}
-
-// NewEmptyDecoder returns a empty decoder
-func NewEmptyDecoder() Decoder {
-	return &emptyDecoder{}
+// Codec message codec, used to encode message to bytes or decode bytes to message.
+type Codec interface {
+	// Encode encode message into the out buffer or write directly to the underlying connection.
+	Encode(message any, out *buf.ByteBuf, conn io.Writer) error
+	// Decode decode message from the bytes buffer, returns false if there is not enough data.
+	Decode(in *buf.ByteBuf) (message any, complete bool, err error)
 }
