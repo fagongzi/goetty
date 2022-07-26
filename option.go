@@ -1,16 +1,16 @@
 package goetty
 
 const (
-	// DefaultSessionBucketSize default bucket size of session map
-	DefaultSessionBucketSize = uint64(64)
-	// DefaultReadBuf read buf size
-	DefaultReadBuf = 256
-	// DefaultWriteBuf write buf size
-	DefaultWriteBuf = 256
-	// DefaultReadCopyBuf io.CopyBuffer buffer size for read
-	DefaultReadCopyBuf = 1024
-	// DefaultWriteCopyBuf io.CopyBuffer buffer size for write
-	DefaultWriteCopyBuf = 1024
+	// defaultSessionBucketSize default bucket size of session map
+	defaultSessionBucketSize = uint64(64)
+	// defaultReadBuf read buf size
+	defaultReadBuf = 256
+	// defaultWriteBuf write buf size
+	defaultWriteBuf = 256
+	// defaultReadCopyBuf io.CopyBuffer buffer size for read
+	defaultReadCopyBuf = 1024
+	// defaultWriteCopyBuf io.CopyBuffer buffer size for write
+	defaultWriteCopyBuf = 1024
 )
 
 // IOSessionAware io session aware

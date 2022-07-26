@@ -67,11 +67,11 @@ func (c *lengthCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
 	return c.baseCodec.Decode(in)
 }
 
-func (c *lengthCodec) Encode(data interface{}, out *buf.ByteBuf, conn io.Writer) error {
+func (c *lengthCodec) Encode(message any, out *buf.ByteBuf, conn io.Writer) error {
 	oldIndex := out.GetWriteIndex()
 	out.Grow(4)
 	out.SetWriteIndex(oldIndex + 4)
-	err := c.baseCodec.Encode(data, out, conn)
+	err := c.baseCodec.Encode(message, out, conn)
 	if err != nil {
 		return err
 	}

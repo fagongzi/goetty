@@ -53,8 +53,6 @@ type NetApplication interface {
 	Stop() error
 	// GetSession get session
 	GetSession(uint64) (IOSession, error)
-	// Broadcast broadcast msg to all sessions
-	Broadcast(msg interface{}) error
 }
 
 type sessionMap struct {
@@ -67,7 +65,7 @@ type server struct {
 	listener   net.Listener
 	closedC    chan struct{}
 	sessions   map[uint64]*sessionMap
-	handleFunc func(IOSession, interface{}, uint64) error
+	handleFunc func(IOSession, any, uint64) error
 
 	mu struct {
 		sync.RWMutex
@@ -86,7 +84,7 @@ type server struct {
 }
 
 // NewApplicationWithListener returns a net application with listener
-func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
+func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession, any, uint64) error, opts ...AppOption) (NetApplication, error) {
 	s := &server{
 		listener:   listener,
 		handleFunc: handleFunc,
@@ -109,7 +107,7 @@ func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession
 }
 
 // NewApplication returns a application
-func NewApplication(address string, handleFunc func(IOSession, interface{}, uint64) error, opts ...AppOption) (NetApplication, error) {
+func NewApplication(address string, handleFunc func(IOSession, any, uint64) error, opts ...AppOption) (NetApplication, error) {
 	network, address, err := parseAdddress(address)
 	if err != nil {
 		return nil, err
@@ -137,7 +135,7 @@ func (s *server) Start() error {
 
 	s.mu.running = true
 	go s.doStart()
-	s.logger.Info("application started")
+	s.logger.Debug("application started")
 	return nil
 }
 
@@ -150,8 +148,10 @@ func (s *server) Stop() error {
 	s.mu.running = false
 	s.mu.Unlock()
 
-	s.listener.Close()
-	s.logger.Info("application listener closed")
+	if err := s.listener.Close(); err != nil {
+		return err
+	}
+	s.logger.Debug("application listener closed")
 	<-s.closedC
 
 	// now no new connection will added, close all active sessions
@@ -159,11 +159,14 @@ func (s *server) Stop() error {
 		m.Lock()
 		for k, rs := range m.sessions {
 			delete(m.sessions, k)
-			rs.Close()
+			if err := rs.Close(); err != nil {
+				s.logger.Error("session closed failed",
+					zap.Error(err))
+			}
 		}
 		m.Unlock()
 	}
-	s.logger.Info("application stopped")
+	s.logger.Debug("application stopped")
 	return nil
 }
 
@@ -179,39 +182,26 @@ func (s *server) GetSession(id uint64) (IOSession, error) {
 	return session, nil
 }
 
-func (s *server) Broadcast(msg interface{}) error {
-	if !s.isStarted() {
-		return errors.New("server is not started")
-	}
-
-	for _, m := range s.sessions {
-		m.RLock()
-		for _, rs := range m.sessions {
-			rs.Write(msg, WriteOptions{Flush: true})
-		}
-		m.RUnlock()
-	}
-
-	return nil
-}
-
 func (s *server) adjust() {
 	s.logger = adjustLogger(s.logger)
 	s.options.sessionOpts = append(s.options.sessionOpts, WithSessionLogger(s.logger))
 	if s.options.sessionBucketSize == 0 {
-		s.options.sessionBucketSize = DefaultSessionBucketSize
+		s.options.sessionBucketSize = defaultSessionBucketSize
 	}
 }
 
 func (s *server) doStart() {
-	s.logger.Info("application accept loop started")
+	s.logger.Debug("application accept loop started")
+	defer func() {
+		s.logger.Debug("application accept loop stopped")
+		close(s.closedC)
+	}()
+
 	var tempDelay time.Duration
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			if !s.isStarted() {
-				s.logger.Info("application accept loop stopped")
-				close(s.closedC)
 				return
 			}
 
@@ -232,22 +222,26 @@ func (s *server) doStart() {
 		tempDelay = 0
 
 		var options []Option
+		options = append(options,
+			WithSessionConn(s.nextID(), conn),
+			WithSessionAware(s.options.aware))
 		options = append(options, s.options.sessionOpts...)
-		options = append(options, WithSessionConn(s.nextID(), conn))
 		rs := NewIOSession(options...)
-		s.addSession(rs)
+		if !s.addSession(rs) {
+			if err := rs.Close(); err != nil {
+				s.logger.Error("close session failed", zap.Error(err))
+			}
+			return
+		}
 
 		go func() {
 			defer func() {
-				s.deleteSession(rs)
-				rs.Close()
-				if s.options.aware != nil {
-					s.options.aware.Closed(rs)
+				if s.deleteSession(rs) {
+					if err := rs.Close(); err != nil {
+						s.logger.Error("close session failed", zap.Error(err))
+					}
 				}
 			}()
-			if s.options.aware != nil {
-				s.options.aware.Created(rs)
-			}
 			s.doConnection(rs)
 		}()
 	}
@@ -255,9 +249,9 @@ func (s *server) doStart() {
 
 func (s *server) doConnection(rs IOSession) error {
 	logger := s.logger.With(zap.Uint64("session-id", rs.ID()),
-		zap.String("addr", rs.RemoteAddr()))
+		zap.String("addr", rs.RemoteAddress()))
 
-	logger.Info("session connected")
+	logger.Debug("session connected")
 
 	received := uint64(0)
 	for {
@@ -286,18 +280,33 @@ func (s *server) doConnection(rs IOSession) error {
 	}
 }
 
-func (s *server) addSession(session IOSession) {
+func (s *server) addSession(session IOSession) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.mu.running {
+		return false
+	}
+
 	m := s.sessions[session.ID()%s.options.sessionBucketSize]
 	m.Lock()
 	m.sessions[session.ID()] = session
 	m.Unlock()
+	return true
 }
 
-func (s *server) deleteSession(session IOSession) {
+func (s *server) deleteSession(session IOSession) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.mu.running {
+		return false
+	}
+
 	m := s.sessions[session.ID()%s.options.sessionBucketSize]
 	m.Lock()
 	delete(m.sessions, session.ID())
 	m.Unlock()
+	return true
 }
 
 func (s *server) nextID() uint64 {

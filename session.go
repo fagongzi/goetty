@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,9 +20,9 @@ var (
 	ErrDisableConnect = errors.New("io session is disable to connect")
 
 	stateReadyToConnect int32 = 0
-	stateConnectting    int32 = 1
+	stateConnecting     int32 = 1
 	stateConnected      int32 = 2
-	stateClosing        int32 = 3
+	stateClosed         int32 = 3
 )
 
 // WriteOptions write options
@@ -43,13 +41,6 @@ type ReadOptions struct {
 
 // Option option to create IOSession
 type Option func(*baseIO)
-
-// WithDisableReleaseOutBuf set disable release buf
-func WithDisableReleaseOutBuf() Option {
-	return func(bio *baseIO) {
-		bio.options.disableReleaseOut = true
-	}
-}
 
 // WithSessionLogger set logger for IOSession
 func WithSessionLogger(logger *zap.Logger) Option {
@@ -95,6 +86,13 @@ func WithSessionConn(id uint64, conn net.Conn) Option {
 	}
 }
 
+// WithSessionAware set IOSession's session aware
+func WithSessionAware(value IOSessionAware) Option {
+	return func(bio *baseIO) {
+		bio.options.aware = value
+	}
+}
+
 // WithSessionReleaseMsgFunc set a func to release message once the message encode into the write buf
 func WithSessionReleaseMsgFunc(value func(any)) Option {
 	return func(bio *baseIO) {
@@ -102,37 +100,32 @@ func WithSessionReleaseMsgFunc(value func(any)) Option {
 	}
 }
 
-// IOSession session
+// IOSession internally holds a raw net.Conn on which to provide read and write operations
 type IOSession interface {
-	// ID sessino id
+	// ID session id
 	ID() uint64
 	// Connect connect to address, only used at client-side
-	Connect(addr string, timeout time.Duration) (bool, error)
-	// Close close the session
-	Close() error
+	Connect(addr string, timeout time.Duration) error
 	// Connected returns true if connection is ok
 	Connected() bool
+	// Disconnect disconnect the connection
+	Disconnect() error
+	// Close close the session, the read and write buffer will closed, and cannot Connect
+	// again. IOSession reference count minus 1.
+	Close() error
+	// Ref for IOSessions, held by several goroutines, several references are needed. Each
+	// concurrent process holding an IOSession can Close the IOSession and release the resource
+	// when the reference count reaches 0.
+	Ref()
 	// Read read packet from connection
-	Read(option ReadOptions) (interface{}, error)
+	Read(option ReadOptions) (any, error)
 	// Write encodes the msg into a []byte into the buffer according to the codec.Encode.
 	// If flush is set to flase, the data will not be written to the underlying socket.
-	Write(msg interface{}, options WriteOptions) error
+	Write(msg any, options WriteOptions) error
 	// Flush flush the out buffer
 	Flush(timeout time.Duration) error
-	// InBuf connection read buffer
-	InBuf() *buf.ByteBuf
-	// OutBuf connection out buffer
-	OutBuf() *buf.ByteBuf
-	// SetAttr set attr
-	SetAttr(key string, value interface{})
-	// GetAttr read attr
-	GetAttr(key string) interface{}
-	// RemoteAddr returns remote address, include ip and port
-	RemoteAddr() string
-	// RemoteIP returns remote address, only ip
-	RemoteIP() string
-	// RawConn returns the raw connection
-	RawConn() (net.Conn, error)
+	// RemoteAddress returns remote address, include ip and port
+	RemoteAddress() string
 }
 
 type baseIO struct {
@@ -142,20 +135,23 @@ type baseIO struct {
 	localAddr, remoteAddr string
 	in                    *buf.ByteBuf
 	out                   *buf.ByteBuf
-	attrs                 sync.Map
 	disableConnect        bool
 	logger                *zap.Logger
 	readCopyBuf           []byte
 	writeCopyBuf          []byte
 
 	options struct {
+		aware                             IOSessionAware
 		codec                             codec.Codec
 		readBufSize, writeBufSize         int
 		readCopyBufSize, writeCopyBufSize int
 		connOptionFunc                    func(net.Conn)
-		releaseMsgFunc                    func(interface{})
-		disableReleaseOut                 bool
+		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
+	}
+
+	atomic struct {
+		ref int32
 	}
 }
 
@@ -173,25 +169,29 @@ func NewIOSession(opts ...Option) IOSession {
 		bio.initConn()
 		bio.disableConnect = true
 	}
+	if bio.options.aware != nil {
+		bio.options.aware.Created(bio)
+	}
+	bio.Ref()
 	return bio
 }
 
 func (bio *baseIO) adjust() {
 	bio.logger = adjustLogger(bio.logger)
 	if bio.options.readBufSize == 0 {
-		bio.options.readBufSize = DefaultReadBuf
+		bio.options.readBufSize = defaultReadBuf
 	}
 	if bio.options.readCopyBufSize == 0 {
-		bio.options.readCopyBufSize = DefaultReadCopyBuf
+		bio.options.readCopyBufSize = defaultReadCopyBuf
 	}
 	if bio.options.writeBufSize == 0 {
-		bio.options.writeBufSize = DefaultWriteBuf
+		bio.options.writeBufSize = defaultWriteBuf
 	}
 	if bio.options.writeCopyBufSize == 0 {
-		bio.options.writeCopyBufSize = DefaultWriteCopyBuf
+		bio.options.writeCopyBufSize = defaultWriteCopyBuf
 	}
 	if bio.options.releaseMsgFunc == nil {
-		bio.options.releaseMsgFunc = func(interface{}) {}
+		bio.options.releaseMsgFunc = func(any) {}
 	}
 	if bio.options.connOptionFunc == nil {
 		bio.options.connOptionFunc = func(net.Conn) {}
@@ -202,91 +202,129 @@ func (bio *baseIO) ID() uint64 {
 	return bio.id
 }
 
-func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) (bool, error) {
+func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) error {
 	network, address, err := parseAdddress(addressWithNetwork)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if bio.disableConnect {
-		return false, ErrDisableConnect
+		return ErrDisableConnect
 	}
 
 	old := bio.getState()
 	switch old {
 	case stateReadyToConnect:
 		break
-	case stateClosing:
-		return false, fmt.Errorf("the session is closing in other goroutine")
-	case stateConnectting:
-		return false, fmt.Errorf("the session is connecting in other goroutine")
+	case stateClosed:
+		return fmt.Errorf("the session is closed")
+	case stateConnecting:
+		return fmt.Errorf("the session is connecting in other goroutine")
 	case stateConnected:
-		return true, nil
+		return nil
 	}
 
-	// only stateReadyToConnect state can connect
-	if !atomic.CompareAndSwapInt32(&bio.state, stateReadyToConnect, stateConnectting) {
+	if !atomic.CompareAndSwapInt32(&bio.state, stateReadyToConnect, stateConnecting) {
 		current := bio.getState()
 		if current == stateConnected {
-			return true, nil
+			return nil
 		}
-
-		return false, fmt.Errorf("the session is closing or connecting is other goroutine")
+		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	conn, err := net.DialTimeout(network, address, timeout)
+	d := net.Dialer{Timeout: timeout, Control: nil}
+	conn, err := d.Dial(network, address)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
-		return false, err
+		return err
 	}
 
 	bio.conn = conn
 	bio.initConn()
-	return true, nil
+	return nil
 }
 
 func (bio *baseIO) Connected() bool {
 	return bio.getState() == stateConnected
 }
 
-func (bio *baseIO) Close() error {
+func (bio *baseIO) Disconnect() error {
 	old := bio.getState()
 	switch old {
-	case stateReadyToConnect:
+	case stateReadyToConnect, stateClosed:
 		return nil
-	case stateClosing:
-		return fmt.Errorf("the session is closing in other goroutine")
-	case stateConnectting:
+	case stateConnecting:
 		return fmt.Errorf("the session is connecting in other goroutine")
 	case stateConnected:
 		break
 	}
 
-	// only stateConnected state close
-	if !atomic.CompareAndSwapInt32(&bio.state, stateConnected, stateClosing) {
+	if !atomic.CompareAndSwapInt32(&bio.state, stateConnected, stateReadyToConnect) {
 		current := bio.getState()
 		if current == stateReadyToConnect {
 			return nil
 		}
-
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
 	bio.closeConn()
-	if !bio.options.disableReleaseOut {
-		bio.out.Release()
-	}
 	atomic.StoreInt32(&bio.state, stateReadyToConnect)
 	return nil
 }
 
-func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
+func (bio *baseIO) Ref() {
+	atomic.AddInt32(&bio.atomic.ref, 1)
+}
+
+func (bio *baseIO) unRef() int32 {
+	return atomic.AddInt32(&bio.atomic.ref, -1)
+}
+
+func (bio *baseIO) Close() error {
+	ref := bio.unRef()
+	if ref < 0 {
+		panic("invalid ref count")
+	}
+	if ref > 0 {
+		return nil
+	}
+
+	old := bio.getState()
+	switch old {
+	case stateReadyToConnect, stateClosed:
+		return nil
+	case stateConnecting:
+		return fmt.Errorf("the session is connecting in other goroutine")
+	case stateConnected:
+		break
+	}
+
+	if !atomic.CompareAndSwapInt32(&bio.state, stateConnected, stateClosed) {
+		current := bio.getState()
+		if current == stateClosed {
+			return nil
+		}
+		return fmt.Errorf("the session is closing or connecting is other goroutine")
+	}
+
+	bio.closeConn()
+	bio.out.Close()
+	bio.in.Close()
+	atomic.StoreInt32(&bio.state, stateClosed)
+	if bio.options.aware != nil {
+		bio.options.aware.Closed(bio)
+	}
+	bio.logger.Debug("IOSession closed")
+	return nil
+}
+
+func (bio *baseIO) Read(options ReadOptions) (any, error) {
 	for {
 		if !bio.Connected() {
 			return nil, ErrIllegalState
 		}
 
-		var msg interface{}
+		var msg any
 		var err error
 		var complete bool
 		for {
@@ -301,7 +339,7 @@ func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
 			}
 
 			if nil != err {
-				bio.in.Release()
+				bio.in.Reset()
 				return nil, err
 			}
 
@@ -316,7 +354,7 @@ func (bio *baseIO) Read(options ReadOptions) (interface{}, error) {
 	}
 }
 
-func (bio *baseIO) Write(msg interface{}, options WriteOptions) error {
+func (bio *baseIO) Write(msg any, options WriteOptions) error {
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
@@ -356,42 +394,8 @@ func (bio *baseIO) Flush(timeout time.Duration) error {
 	return err
 }
 
-func (bio *baseIO) RemoteAddr() string {
+func (bio *baseIO) RemoteAddress() string {
 	return bio.remoteAddr
-}
-
-func (bio *baseIO) RemoteIP() string {
-	if bio.remoteAddr == "" {
-		return ""
-	}
-	return strings.Split(bio.remoteAddr, ":")[0]
-}
-
-func (bio *baseIO) InBuf() *buf.ByteBuf {
-	return bio.in
-}
-
-func (bio *baseIO) OutBuf() *buf.ByteBuf {
-	return bio.out
-}
-
-func (bio *baseIO) SetAttr(key string, value interface{}) {
-	bio.attrs.Store(key, value)
-}
-
-func (bio *baseIO) GetAttr(key string) interface{} {
-	if v, ok := bio.attrs.Load(key); ok {
-		return v
-	}
-
-	return nil
-}
-
-func (bio *baseIO) RawConn() (net.Conn, error) {
-	if !bio.Connected() {
-		return nil, ErrIllegalState
-	}
-	return bio.conn, nil
 }
 
 func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {
@@ -413,7 +417,12 @@ func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {
 
 func (bio *baseIO) closeConn() {
 	if bio.conn != nil {
-		bio.conn.Close()
+		if err := bio.conn.Close(); err != nil {
+			bio.logger.Error("close conneciton failed",
+				zap.Error(err))
+			return
+		}
+		bio.logger.Error("conneciton disconnected")
 	}
 }
 
@@ -422,6 +431,9 @@ func (bio *baseIO) getState() int32 {
 }
 
 func (bio *baseIO) initConn() {
+	if bio.options.connOptionFunc != nil {
+		bio.options.connOptionFunc(bio.conn)
+	}
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize, buf.WithMemAllocator(bio.options.allocator))
@@ -430,4 +442,5 @@ func (bio *baseIO) initConn() {
 		zap.String("local-address", bio.localAddr),
 		zap.String("remote-address", bio.remoteAddr))
 	atomic.StoreInt32(&bio.state, stateConnected)
+	bio.logger.Debug("session init completed")
 }

@@ -70,8 +70,8 @@ func (t *Timeout) Stop() bool {
 
 type timeout struct {
 	mtx       *paddedMutex
-	expireCb  func(interface{})
-	expireArg interface{}
+	expireCb  func(any)
+	expireArg any
 	deadline  uint64
 
 	// list pointers for the freelist/buckets of the queue. The list is implemented as a forward
@@ -250,8 +250,8 @@ func (t *TimeoutWheel) Stop() {
 // between two ticks, the latter tick is used.
 func (t *TimeoutWheel) Schedule(
 	d time.Duration,
-	expireCb func(interface{}),
-	arg interface{},
+	expireCb func(any),
+	arg any,
 ) (Timeout, error) {
 	dTicks := (d + t.tickInterval - 1) / t.tickInterval
 	deadline := atomic.LoadUint64(&t.ticks) + uint64(dTicks)

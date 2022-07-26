@@ -76,19 +76,19 @@ func TestExpire(t *testing.T) {
 	tw := NewTimeoutWheel()
 	ch := make(chan int, 3)
 
-	_, err := tw.Schedule(20*time.Millisecond, func(_ interface{}) { ch <- 20 }, nil)
+	_, err := tw.Schedule(20*time.Millisecond, func(_ any) { ch <- 20 }, nil)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	_, err = tw.Schedule(10*time.Millisecond, func(_ interface{}) { ch <- 10 }, nil)
+	_, err = tw.Schedule(10*time.Millisecond, func(_ any) { ch <- 10 }, nil)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	_, err = tw.Schedule(5*time.Millisecond, func(_ interface{}) { ch <- 5 }, nil)
+	_, err = tw.Schedule(5*time.Millisecond, func(_ any) { ch <- 5 }, nil)
 	if err != nil {
 		t.Error(err)
 		return
@@ -115,7 +115,7 @@ func TestTimeoutStop(t *testing.T) {
 	tw := NewTimeoutWheel()
 	ch := make(chan struct{})
 
-	timeout, err := tw.Schedule(20*time.Millisecond, func(_ interface{}) { close(ch) }, nil)
+	timeout, err := tw.Schedule(20*time.Millisecond, func(_ any) { close(ch) }, nil)
 	if err != nil {
 		t.Fail()
 		return
@@ -142,7 +142,7 @@ func TestScheduleExpired(t *testing.T) {
 	tw.updateState(running)
 
 	tw.buckets[0].lastTick = 1
-	timeout, _ := tw.Schedule(0, func(_ interface{}) { close(ch) }, nil)
+	timeout, _ := tw.Schedule(0, func(_ any) { close(ch) }, nil)
 
 	select {
 	case <-ch:
@@ -239,7 +239,7 @@ func BenchmarkExpiration(b *testing.B) {
 	d := time.Millisecond
 	b.ResetTimer()
 	var sum int64
-	f := func(interface{}) {
+	f := func(any) {
 		atomic.AddInt64(&sum, 1)
 	}
 	b.RunParallel(func(pb *testing.PB) {

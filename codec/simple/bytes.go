@@ -17,11 +17,11 @@ func NewBytesCodec() codec.Codec {
 type bytesCodec struct {
 }
 
-func (c *bytesCodec) Decode(in *buf.ByteBuf) (interface{}, bool, error) {
+func (c *bytesCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
 	return in.ReadMarkedData(), true, nil
 }
 
-func (c *bytesCodec) Encode(data interface{}, out *buf.ByteBuf, conn io.Writer) error {
+func (c *bytesCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
 	bytes, _ := data.([]byte)
 	out.Write(bytes)
 	return nil

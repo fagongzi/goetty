@@ -106,8 +106,8 @@ func (b *ByteBuf) adjust() {
 	}
 }
 
-// Release release the raw buf to mem allocator.
-func (b *ByteBuf) Release() {
+// Close close the ByteBuf
+func (b *ByteBuf) Close() {
 	b.options.alloc.Free(b.buf)
 	b.buf = nil
 }

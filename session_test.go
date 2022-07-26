@@ -2,7 +2,6 @@ package goetty
 
 import (
 	"io"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,21 +19,18 @@ func TestNormal(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			var cs IOSession
 			cnt := uint64(0)
-			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
-				cs = rs
+			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
 				atomic.StoreUint64(&cnt, received)
-				rs.Write(msg, WriteOptions{Flush: true})
+				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
 				return nil
 			})
 			app.Start()
 			defer app.Stop()
 
 			client := newTestIOSession(t)
-			ok, err := client.Connect(addr, time.Second)
+			err := client.Connect(addr, time.Second)
 			assert.NoError(t, err)
-			assert.True(t, ok)
 			assert.True(t, client.Connected())
 
 			assert.NoError(t, client.Write("hello", WriteOptions{Flush: true}))
@@ -43,27 +39,12 @@ func TestNormal(t *testing.T) {
 			assert.Equal(t, "hello", reply)
 			assert.Equal(t, uint64(1), atomic.LoadUint64(&cnt))
 
-			v, err := app.GetSession(cs.ID())
-			assert.NoError(t, err)
-			assert.NotNil(t, v)
-
-			assert.NoError(t, app.Broadcast("world"))
-			reply, err = client.Read(ReadOptions{})
-			assert.NoError(t, err)
-			assert.Equal(t, "world", reply)
-
-			assert.NoError(t, client.Close())
+			assert.NoError(t, client.Disconnect())
 			assert.False(t, client.Connected())
 			assert.Error(t, client.Write("hello", WriteOptions{Flush: true}))
 
-			time.Sleep(time.Millisecond * 100)
-			v, err = app.GetSession(cs.ID())
+			err = client.Connect(addr, time.Second)
 			assert.NoError(t, err)
-			assert.Nil(t, v)
-
-			ok, err = client.Connect(addr, time.Second)
-			assert.NoError(t, err)
-			assert.True(t, ok)
 			assert.True(t, client.Connected())
 		})
 	}
@@ -75,7 +56,7 @@ func TestReadWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
+			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
 				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
@@ -85,9 +66,8 @@ func TestReadWithTimeout(t *testing.T) {
 			client := newTestIOSession(t)
 			defer client.Close()
 
-			ok, err := client.Connect(addr, time.Second)
+			err := client.Connect(addr, time.Second)
 			assert.NoError(t, err)
-			assert.True(t, ok)
 
 			_, err = client.Read(ReadOptions{Timeout: time.Millisecond * 10})
 			assert.Error(t, err)
@@ -101,19 +81,20 @@ func TestWriteWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg interface{}, received uint64) error {
+			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
 				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
 			app.Start()
-			defer app.Stop()
+			defer func() {
+				assert.NoError(t, app.Stop())
+			}()
 
 			client := newTestIOSession(t)
 			defer client.Close()
 
-			ok, err := client.Connect(addr, time.Second)
+			err := client.Connect(addr, time.Second)
 			assert.NoError(t, err)
-			assert.True(t, ok)
 
 			err = client.Write("hello", WriteOptions{Flush: true, Timeout: 1})
 			assert.Error(t, err)
@@ -124,8 +105,7 @@ func TestWriteWithTimeout(t *testing.T) {
 func BenchmarkWriteAndRead(b *testing.B) {
 	b.ReportAllocs()
 	codec := newBenchmarkStringCodec()
-	assert.NoError(b, os.RemoveAll(testUnixSocket))
-	app := newTestAppWithCodec(b, testUnixSocket, func(rs IOSession, msg interface{}, received uint64) error {
+	app := newTestAppWithCodec(b, testUnixSocket, func(rs IOSession, msg any, received uint64) error {
 		rs.Write(msg, WriteOptions{Flush: true})
 		return nil
 	}, codec)
@@ -135,13 +115,14 @@ func BenchmarkWriteAndRead(b *testing.B) {
 	client := newTestIOSession(nil, WithSessionCodec(codec))
 	defer client.Close()
 
-	ok, err := client.Connect(testUnixSocket, time.Second)
+	err := client.Connect(testUnixSocket, time.Second)
 	assert.NoError(b, err)
-	assert.True(b, ok)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		client.Write("ok", WriteOptions{Flush: true})
-		client.Read(ReadOptions{})
+		err := client.Write("ok", WriteOptions{Flush: true})
+		assert.NoError(b, err)
+		_, err = client.Read(ReadOptions{})
+		assert.NoError(b, err)
 	}
 }
 
@@ -153,6 +134,7 @@ type stringCodec struct {
 }
 
 func (c *stringCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+	in.Skip(in.GetMarkedDataLen())
 	return "OK", true, nil
 }
 
