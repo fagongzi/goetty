@@ -169,7 +169,7 @@ func NewIOSession(opts ...Option) IOSession {
 }
 
 func (bio *baseIO) adjust() {
-	bio.logger = adjustLogger(bio.logger)
+	bio.logger = adjustLogger(bio.logger).With(zap.Uint64("session-id", bio.id))
 	if bio.options.readBufSize == 0 {
 		bio.options.readBufSize = defaultReadBuf
 	}
@@ -424,9 +424,6 @@ func (bio *baseIO) initConn() {
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize, buf.WithMemAllocator(bio.options.allocator))
 	bio.out = buf.NewByteBuf(bio.options.writeBufSize, buf.WithMemAllocator(bio.options.allocator))
-	bio.logger = adjustLogger(bio.logger).Named("io-session").With(zap.Uint64("id", bio.id),
-		zap.String("local-address", bio.localAddr),
-		zap.String("remote-address", bio.remoteAddr))
 	atomic.StoreInt32(&bio.state, stateConnected)
 	bio.logger.Debug("session init completed")
 }
