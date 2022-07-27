@@ -17,6 +17,13 @@ import (
 // AppOption application option
 type AppOption func(*server)
 
+// WithAppHandleSessionFunc set the app handle session funcpl
+func WithAppHandleSessionFunc(value func(IOSession) error) AppOption {
+	return func(s *server) {
+		s.options.handleSessionFunc = value
+	}
+}
+
 // WithAppLogger set logger for application
 func WithAppLogger(logger *zap.Logger) AppOption {
 	return func(s *server) {
@@ -80,6 +87,7 @@ type server struct {
 		sessionOpts       []Option
 		sessionBucketSize uint64
 		aware             IOSessionAware
+		handleSessionFunc func(IOSession) error
 	}
 }
 
@@ -234,6 +242,10 @@ func (s *server) doStart() {
 			return
 		}
 
+		handle := s.options.handleSessionFunc
+		if handle == nil {
+			handle = s.doConnection
+		}
 		go func() {
 			defer func() {
 				if s.deleteSession(rs) {
@@ -242,7 +254,9 @@ func (s *server) doStart() {
 					}
 				}
 			}()
-			s.doConnection(rs)
+			if err := handle(rs); err != nil {
+				s.logger.Error("handle session failed", zap.Error(err))
+			}
 		}()
 	}
 }

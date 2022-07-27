@@ -119,6 +119,8 @@ type IOSession interface {
 	Flush(timeout time.Duration) error
 	// RemoteAddress returns remote address, include ip and port
 	RemoteAddress() string
+	// RawConn return raw tcp conn
+	RawConn() net.Conn
 }
 
 type baseIO struct {
@@ -267,6 +269,10 @@ func (bio *baseIO) Ref() {
 
 func (bio *baseIO) unRef() int32 {
 	return atomic.AddInt32(&bio.atomic.ref, -1)
+}
+
+func (bio *baseIO) RawConn() net.Conn {
+	return bio.conn
 }
 
 func (bio *baseIO) Close() error {
