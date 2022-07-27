@@ -99,7 +99,7 @@ func (p *proxy) handleSession(conn IOSession) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err = io.Copy(srcConn, dstConn)
+		_, err := io.Copy(srcConn, dstConn)
 		if err != nil {
 			p.logger.Error("copy data from upstream to client failed",
 				zap.String("upstream", upstream.address),
