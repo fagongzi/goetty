@@ -50,6 +50,42 @@ func TestNormal(t *testing.T) {
 	}
 }
 
+func TestTLSNormal(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
+				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+				return nil
+			}, WithAppTLSFromCertAndKey(
+				"./etc/server-cert.pem",
+				"./etc/server-key.pem",
+				"./etc/ca.pem",
+				true))
+			app.Start()
+			defer app.Stop()
+
+			client := newTestIOSession(t,
+				WithSessionTLSFromCertAndKeys(
+					"./etc/client-cert.pem",
+					"./etc/client-key.pem",
+					"./etc/ca.pem",
+					true),
+			)
+			err := client.Connect(addr, time.Second*5)
+			assert.NoError(t, err)
+			assert.True(t, client.Connected())
+
+			assert.NoError(t, client.Write("hello", WriteOptions{Flush: true}))
+			reply, err := client.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, "hello", reply)
+		})
+	}
+}
+
 func TestReadWithTimeout(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 

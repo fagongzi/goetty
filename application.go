@@ -2,10 +2,13 @@ package goetty
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,6 +52,47 @@ func WithAppSessionAware(value IOSessionAware) AppOption {
 func WithAppSessionOptions(options ...Option) AppOption {
 	return func(s *server) {
 		s.options.sessionOpts = options
+	}
+}
+
+// WithAppTLS set tls config for application
+func WithAppTLS(tlsCfg *tls.Config) AppOption {
+	return func(s *server) {
+		s.listener = tls.NewListener(s.listener, tlsCfg)
+	}
+}
+
+// WithAppTLSFromKeys set tls config from cert and key files for application
+func WithAppTLSFromCertAndKey(
+	certFile string,
+	keyFile string,
+	caFile string,
+	insecureSkipVerify bool) AppOption {
+	return func(s *server) {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			panic(err)
+		}
+		var caPool *x509.CertPool
+		if caFile != "" {
+			certBytes, err := os.ReadFile(caFile)
+			if err != nil {
+				panic(err)
+			}
+			caPool = x509.NewCertPool()
+			ok := caPool.AppendCertsFromPEM(certBytes)
+			if !ok {
+				panic("failed to parse root certificate")
+			}
+		}
+
+		s.listener = tls.NewListener(s.listener,
+			&tls.Config{
+				Certificates:       []tls.Certificate{cert},
+				InsecureSkipVerify: insecureSkipVerify,
+				ClientAuth:         tls.RequireAndVerifyClientCert,
+				ClientCAs:          caPool,
+			})
 	}
 }
 

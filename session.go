@@ -1,10 +1,13 @@
 package goetty
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -93,6 +96,42 @@ func WithSessionReleaseMsgFunc(value func(any)) Option {
 	}
 }
 
+// WithSessionTLS set tls for client
+func WithSessionTLS(tlsConfig *tls.Config) Option {
+	return func(bio *baseIO) {
+		bio.options.dial = func(network, address string) (net.Conn, error) {
+			return tls.Dial(network, address, tlsConfig)
+		}
+	}
+}
+
+// WithSessionTLSFromCertAndKeys set tls for client
+func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSkipVerify bool) Option {
+	return func(bio *baseIO) {
+		bio.options.dial = func(network, address string) (net.Conn, error) {
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			if err != nil {
+				return nil, err
+			}
+			data, err := os.ReadFile(caFile)
+			if err != nil {
+				return nil, err
+			}
+			certPool := x509.NewCertPool()
+			if !certPool.AppendCertsFromPEM(data) {
+				return nil, fmt.Errorf("append %s to root CAs failed", caFile)
+			}
+
+			conf := &tls.Config{
+				RootCAs:            certPool,
+				Certificates:       []tls.Certificate{cert},
+				InsecureSkipVerify: insecureSkipVerify,
+			}
+			return tls.Dial(network, address, conf)
+		}
+	}
+}
+
 // IOSession internally holds a raw net.Conn on which to provide read and write operations
 type IOSession interface {
 	// ID session id
@@ -142,6 +181,7 @@ type baseIO struct {
 		readCopyBufSize, writeCopyBufSize int
 		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
+		dial                              func(network, address string) (net.Conn, error)
 	}
 
 	atomic struct {
@@ -187,6 +227,9 @@ func (bio *baseIO) adjust() {
 	if bio.options.releaseMsgFunc == nil {
 		bio.options.releaseMsgFunc = func(any) {}
 	}
+	if bio.options.dial == nil {
+		bio.options.dial = net.Dial
+	}
 }
 
 func (bio *baseIO) ID() uint64 {
@@ -223,8 +266,7 @@ func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) err
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	d := net.Dialer{Timeout: timeout, Control: nil}
-	conn, err := d.Dial(network, address)
+	conn, err := bio.options.dial(network, address)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
 		return err
