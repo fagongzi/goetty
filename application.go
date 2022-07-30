@@ -211,7 +211,7 @@ func (s *server) Stop() error {
 		m.Lock()
 		for k, rs := range m.sessions {
 			delete(m.sessions, k)
-			if err := rs.Close(); err != nil {
+			if err := rs.Disconnect(); err != nil {
 				s.logger.Error("session closed failed",
 					zap.Error(err))
 			}
