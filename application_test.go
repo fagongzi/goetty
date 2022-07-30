@@ -77,14 +77,34 @@ func TestStop(t *testing.T) {
 			assert.Equal(t, 0, c)
 		})
 	}
+}
 
+func TestStartWithTLS(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t, addr, func(i IOSession, a any, u uint64) error {
+				return i.Write(a, WriteOptions{Flush: true})
+			}, WithAppTLSFromCertAndKey(
+				"./etc/server-cert.pem",
+				"./etc/server-key.pem",
+				"./etc/ca.pem",
+				true))
+			assert.NoError(t, app.Start())
+			defer func() {
+				assert.NoError(t, app.Stop())
+			}()
+		})
+	}
 }
 
 func newTestApp(t assert.TestingT,
 	address string,
 	handleFunc func(IOSession, any, uint64) error,
 	opts ...AppOption) NetApplication {
-	return newTestAppWithCodec(t, address, handleFunc, simple.NewStringCodec())
+	return newTestAppWithCodec(t, address, handleFunc, simple.NewStringCodec(), opts...)
 }
 
 func newTestAppWithCodec(t assert.TestingT,
