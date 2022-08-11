@@ -1,7 +1,10 @@
 package goetty
 
 import (
+	"fmt"
 	"io"
+	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,6 +49,60 @@ func TestNormal(t *testing.T) {
 			err = client.Connect(addr, time.Second)
 			assert.NoError(t, err)
 			assert.True(t, client.Connected())
+		})
+	}
+}
+
+func TestUseConn(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			conns := map[string]net.Conn{}
+			app := newTestApp(t, addr, func(rs IOSession, v any, received uint64) error {
+				msg := v.(string)
+				if msg == "regist" {
+					conns[fmt.Sprintf("%d", rs.ID())] = rs.RawConn()
+					assert.NoError(t, rs.Write(fmt.Sprintf("%d", rs.ID()), WriteOptions{Flush: true}))
+					return nil
+				} else if strings.HasPrefix(msg, "use:") {
+					id := strings.Split(msg, ":")[1]
+					rs.UseConn(conns[id])
+					assert.NoError(t, rs.Write("OK", WriteOptions{Flush: true}))
+					return nil
+				}
+				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+				return nil
+			})
+			app.Start()
+			defer app.Stop()
+
+			c1 := newTestIOSession(t)
+			assert.NoError(t, c1.Connect(addr, time.Second))
+			assert.True(t, c1.Connected())
+			assert.NoError(t, c1.Write("regist", WriteOptions{Flush: true}))
+			id1, err := c1.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.NotEmpty(t, id1)
+
+			c2 := newTestIOSession(t)
+			assert.NoError(t, c2.Connect(addr, time.Second))
+			assert.True(t, c2.Connected())
+			assert.NoError(t, c2.Write("regist", WriteOptions{Flush: true}))
+			id2, err := c2.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.NotEmpty(t, id2)
+
+			assert.NoError(t, c1.Write(fmt.Sprintf("use:%s", id2), WriteOptions{Flush: true}))
+			reply, err := c2.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, "OK", reply)
+
+			assert.NoError(t, c2.Write(fmt.Sprintf("use:%s", id1), WriteOptions{Flush: true}))
+			reply, err = c1.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, "OK", reply)
 		})
 	}
 }
