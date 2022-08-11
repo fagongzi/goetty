@@ -160,6 +160,9 @@ type IOSession interface {
 	RemoteAddress() string
 	// RawConn return raw tcp conn
 	RawConn() net.Conn
+	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
+	// writes cannot be handled in other goroutines until UseConn is called.
+	UseConn(net.Conn)
 }
 
 type baseIO struct {
@@ -315,6 +318,10 @@ func (bio *baseIO) unRef() int32 {
 
 func (bio *baseIO) RawConn() net.Conn {
 	return bio.conn
+}
+
+func (bio *baseIO) UseConn(conn net.Conn) {
+	bio.conn = conn
 }
 
 func (bio *baseIO) Close() error {
