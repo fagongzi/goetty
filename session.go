@@ -163,6 +163,8 @@ type IOSession interface {
 	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
 	// writes cannot be handled in other goroutines until UseConn is called.
 	UseConn(net.Conn)
+	// OutBuf returns bytebuf which used to encode message into bytes
+	OutBuf() *buf.ByteBuf
 }
 
 type baseIO struct {
@@ -440,6 +442,10 @@ func (bio *baseIO) Flush(timeout time.Duration) error {
 
 func (bio *baseIO) RemoteAddress() string {
 	return bio.remoteAddr
+}
+
+func (bio *baseIO) OutBuf() *buf.ByteBuf {
+	return bio.out
 }
 
 func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {

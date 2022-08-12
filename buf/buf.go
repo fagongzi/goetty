@@ -202,6 +202,12 @@ func (b *ByteBuf) RawSlice(from, to int) []byte {
 	return b.buf[from:to]
 }
 
+// RawBuf returns raw buf. This method requires special care, as the ByteBuf may free the internal []byte
+// after the data is written again, causing the slice to fail.
+func (b *ByteBuf) RawBuf() []byte {
+	return b.buf
+}
+
 // Readable return the number of bytes that can be read.
 func (b *ByteBuf) Readable() int {
 	return b.writerIndex - b.readerIndex
@@ -273,6 +279,17 @@ func (b *ByteBuf) PeekInt(offset int) int {
 
 	start := b.readerIndex + offset
 	return Byte2Int(b.buf[start : start+4])
+}
+
+// PeekN is similar to ReadBytes, but keep readIndex not changed.
+func (b *ByteBuf) PeekN(offset, bytes int) []byte {
+	if b.Readable() < bytes {
+		panic(fmt.Sprintf("peek bytes %d, but readable is %d",
+			bytes, b.Readable()))
+	}
+
+	start := b.readerIndex + offset
+	return b.buf[start : start+bytes]
 }
 
 // ReadUint16 get uint16 value from buf
