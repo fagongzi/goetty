@@ -132,6 +132,14 @@ func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSki
 	}
 }
 
+// WithSessionDisableAutoResetInBuffer set disable auto reset in buffer. If disabled, the
+// application must reset in buffer in the read loop, otherwise there will be a memory leak.
+func WithSessionDisableAutoResetInBuffer() Option {
+	return func(bio *baseIO) {
+		bio.options.disableAutoResetInBuffer = true
+	}
+}
+
 // IOSession internally holds a raw net.Conn on which to provide read and write operations
 type IOSession interface {
 	// ID session id
@@ -187,6 +195,7 @@ type baseIO struct {
 		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
 		dial                              func(network, address string) (net.Conn, error)
+		disableAutoResetInBuffer          bool
 	}
 
 	atomic struct {
@@ -380,7 +389,10 @@ func (bio *baseIO) Read(options ReadOptions) (any, error) {
 					msg, complete, err = bio.readFromConn(options.Timeout)
 				}
 			} else {
-				bio.in.Reset()
+				if !bio.options.disableAutoResetInBuffer {
+					bio.in.Reset()
+				}
+
 				msg, complete, err = bio.readFromConn(options.Timeout)
 			}
 
@@ -390,7 +402,7 @@ func (bio *baseIO) Read(options ReadOptions) (any, error) {
 			}
 
 			if complete {
-				if bio.in.Readable() == 0 {
+				if !bio.options.disableAutoResetInBuffer && bio.in.Readable() == 0 {
 					bio.in.Reset()
 				}
 
