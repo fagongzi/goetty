@@ -484,7 +484,7 @@ func (bio *baseIO) closeConn() {
 				zap.Error(err))
 			return
 		}
-		bio.logger.Error("conneciton disconnected")
+		bio.logger.Debug("conneciton disconnected")
 	}
 }
 
