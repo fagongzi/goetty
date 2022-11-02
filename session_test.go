@@ -195,6 +195,12 @@ func TestWriteWithTimeout(t *testing.T) {
 	}
 }
 
+func TestCloseOnAwareCreated(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	s := NewIOSession(WithSessionAware(&testAware{}))
+	assert.NoError(t, s.Close())
+}
+
 func BenchmarkWriteAndRead(b *testing.B) {
 	b.ReportAllocs()
 	codec := newBenchmarkStringCodec()
@@ -237,4 +243,15 @@ func (c *stringCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
 		out.WriteByte(byte(d))
 	}
 	return nil
+}
+
+type testAware struct {
+}
+
+func (ta *testAware) Created(rs IOSession) {
+	_ = rs.Close()
+}
+
+func (ta *testAware) Closed(rs IOSession) {
+
 }
