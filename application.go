@@ -58,7 +58,9 @@ func WithAppSessionOptions(options ...Option) AppOption {
 // WithAppTLS set tls config for application
 func WithAppTLS(tlsCfg *tls.Config) AppOption {
 	return func(s *server) {
-		s.listener = tls.NewListener(s.listener, tlsCfg)
+		for idx, listener := range s.listeners {
+			s.listeners[idx] = tls.NewListener(listener, tlsCfg)
+		}
 	}
 }
 
@@ -86,13 +88,14 @@ func WithAppTLSFromCertAndKey(
 			}
 		}
 
-		s.listener = tls.NewListener(s.listener,
-			&tls.Config{
+		for idx, listener := range s.listeners {
+			s.listeners[idx] = tls.NewListener(listener, &tls.Config{
 				Certificates:       []tls.Certificate{cert},
 				InsecureSkipVerify: insecureSkipVerify,
 				ClientAuth:         tls.RequireAndVerifyClientCert,
 				ClientCAs:          caPool,
 			})
+		}
 	}
 }
 
@@ -113,8 +116,8 @@ type sessionMap struct {
 
 type server struct {
 	logger     *zap.Logger
-	listener   net.Listener
-	closedC    chan struct{}
+	listeners  []net.Listener
+	wg         sync.WaitGroup
 	sessions   map[uint64]*sessionMap
 	handleFunc func(IOSession, any, uint64) error
 
@@ -136,11 +139,10 @@ type server struct {
 }
 
 // NewApplicationWithListener returns a net application with listener
-func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession, any, uint64) error, opts ...AppOption) (NetApplication, error) {
+func NewApplicationWithListeners(listeners []net.Listener, handleFunc func(IOSession, any, uint64) error, opts ...AppOption) (NetApplication, error) {
 	s := &server{
-		listener:   listener,
+		listeners:  listeners,
 		handleFunc: handleFunc,
-		closedC:    make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -148,7 +150,16 @@ func NewApplicationWithListener(listener net.Listener, handleFunc func(IOSession
 	}
 
 	s.adjust()
-	s.logger = s.logger.With(zap.String("listen-address", listener.Addr().String()))
+
+	addresses := "["
+	for idx, listener := range s.listeners {
+		addresses += listener.Addr().String()
+		if idx != len(s.listeners)-1 {
+			addresses += ","
+		}
+	}
+	addresses += "]"
+	s.logger = s.logger.With(zap.String("listen-addresses", addresses))
 	s.sessions = make(map[uint64]*sessionMap, s.options.sessionBucketSize)
 	for i := uint64(0); i < s.options.sessionBucketSize; i++ {
 		s.sessions[i] = &sessionMap{
@@ -174,7 +185,30 @@ func NewApplication(address string, handleFunc func(IOSession, any, uint64) erro
 		return nil, err
 	}
 
-	return NewApplicationWithListener(listener, handleFunc, opts...)
+	return NewApplicationWithListeners([]net.Listener{listener}, handleFunc, opts...)
+}
+
+// NewApplicationWithListenAddress create a net application with listen multi addresses
+func NewApplicationWithListenAddress(addresses []string, handleFunc func(IOSession, any, uint64) error, opts ...AppOption) (NetApplication, error) {
+	listeners := make([]net.Listener, 0, len(addresses))
+	for _, address := range addresses {
+		network, address, err := parseAdddress(address)
+		if err != nil {
+			return nil, err
+		}
+
+		listenConfig := &net.ListenConfig{
+			Control: listenControl,
+		}
+
+		listener, err := listenConfig.Listen(context.TODO(), network, address)
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, listener)
+	}
+
+	return NewApplicationWithListeners(listeners, handleFunc, opts...)
 }
 
 func (s *server) Start() error {
@@ -186,7 +220,7 @@ func (s *server) Start() error {
 	}
 
 	s.mu.running = true
-	go s.doStart()
+	s.doStart()
 	s.logger.Debug("application started")
 	return nil
 }
@@ -200,11 +234,18 @@ func (s *server) Stop() error {
 	s.mu.running = false
 	s.mu.Unlock()
 
-	if err := s.listener.Close(); err != nil {
-		return err
+	var errors []error
+	for _, listener := range s.listeners {
+		if err := listener.Close(); err != nil {
+			errors = append(errors, err)
+		}
 	}
+	if len(errors) > 0 {
+		return errors[0]
+	}
+
 	s.logger.Debug("application listener closed")
-	<-s.closedC
+	s.wg.Wait()
 
 	// now no new connection will added, close all active sessions
 	for _, m := range s.sessions {
@@ -246,62 +287,70 @@ func (s *server) doStart() {
 	s.logger.Debug("application accept loop started")
 	defer func() {
 		s.logger.Debug("application accept loop stopped")
-		close(s.closedC)
 	}()
 
-	var tempDelay time.Duration
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			if !s.isStarted() {
+	listenFunc := func(listener net.Listener) {
+		defer s.wg.Done()
+
+		var tempDelay time.Duration
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if !s.isStarted() {
+					return
+				}
+
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					if tempDelay == 0 {
+						tempDelay = 5 * time.Millisecond
+					} else {
+						tempDelay *= 2
+					}
+					if max := 1 * time.Second; tempDelay > max {
+						tempDelay = max
+					}
+					time.Sleep(tempDelay)
+					continue
+				}
+				return
+			}
+			tempDelay = 0
+
+			var options []Option
+			options = append(options,
+				WithSessionConn(s.nextID(), conn),
+				WithSessionAware(s.options.aware))
+			options = append(options, s.options.sessionOpts...)
+			rs := NewIOSession(options...)
+			if !s.addSession(rs) {
+				if err := rs.Close(); err != nil {
+					s.logger.Error("close session failed", zap.Error(err))
+				}
 				return
 			}
 
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
-				} else {
-					tempDelay *= 2
-				}
-				if max := 1 * time.Second; tempDelay > max {
-					tempDelay = max
-				}
-				time.Sleep(tempDelay)
-				continue
+			handle := s.options.handleSessionFunc
+			if handle == nil {
+				handle = s.doConnection
 			}
-			return
-		}
-		tempDelay = 0
-
-		var options []Option
-		options = append(options,
-			WithSessionConn(s.nextID(), conn),
-			WithSessionAware(s.options.aware))
-		options = append(options, s.options.sessionOpts...)
-		rs := NewIOSession(options...)
-		if !s.addSession(rs) {
-			if err := rs.Close(); err != nil {
-				s.logger.Error("close session failed", zap.Error(err))
-			}
-			return
-		}
-
-		handle := s.options.handleSessionFunc
-		if handle == nil {
-			handle = s.doConnection
-		}
-		go func() {
-			defer func() {
-				if s.deleteSession(rs) {
-					if err := rs.Close(); err != nil {
-						s.logger.Error("close session failed", zap.Error(err))
+			go func() {
+				defer func() {
+					if s.deleteSession(rs) {
+						if err := rs.Close(); err != nil {
+							s.logger.Error("close session failed", zap.Error(err))
+						}
 					}
+				}()
+				if err := handle(rs); err != nil {
+					s.logger.Error("handle session failed", zap.Error(err))
 				}
 			}()
-			if err := handle(rs); err != nil {
-				s.logger.Error("handle session failed", zap.Error(err))
-			}
-		}()
+		}
+	}
+
+	for _, listener := range s.listeners {
+		s.wg.Add(1)
+		go listenFunc(listener)
 	}
 }
 

@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	testAddr       = "127.0.0.1:12345"
-	testUnixSocket = "unix:///tmp/goetty.sock"
-
-	testAddresses = map[string]string{
+	testAddr            = "127.0.0.1:12345"
+	testUnixSocket      = "unix:///tmp/goetty.sock"
+	testListenAddresses = []string{testAddr, testUnixSocket}
+	testAddresses       = map[string]string{
 		"tcp":  testAddr,
 		"unix": testUnixSocket,
 	}
@@ -25,10 +25,9 @@ var (
 func TestStart(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
-	for name, address := range testAddresses {
-		addr := address
+	for name := range testAddresses {
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, nil)
+			app := newTestApp(t, testListenAddresses, nil)
 			defer app.Stop()
 
 			assert.NoError(t, app.Start())
@@ -43,7 +42,7 @@ func TestStop(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(i IOSession, a any, u uint64) error {
+			app := newTestApp(t, testListenAddresses, func(i IOSession, a any, u uint64) error {
 				return i.Write(a, WriteOptions{Flush: true})
 			}).(*server)
 			assert.NoError(t, app.Start())
@@ -82,10 +81,9 @@ func TestStop(t *testing.T) {
 func TestStartWithTLS(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
-	for name, address := range testAddresses {
-		addr := address
+	for name := range testAddresses {
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(i IOSession, a any, u uint64) error {
+			app := newTestApp(t, testListenAddresses, func(i IOSession, a any, u uint64) error {
 				return i.Write(a, WriteOptions{Flush: true})
 			}, WithAppTLSFromCertAndKey(
 				"./etc/server-cert.pem",
@@ -101,14 +99,14 @@ func TestStartWithTLS(t *testing.T) {
 }
 
 func newTestApp(t assert.TestingT,
-	address string,
+	addresses []string,
 	handleFunc func(IOSession, any, uint64) error,
 	opts ...AppOption) NetApplication {
-	return newTestAppWithCodec(t, address, handleFunc, simple.NewStringCodec(), opts...)
+	return newTestAppWithCodec(t, addresses, handleFunc, simple.NewStringCodec(), opts...)
 }
 
 func newTestAppWithCodec(t assert.TestingT,
-	address string,
+	addresses []string,
 	handleFunc func(IOSession, any, uint64) error,
 	codec codec.Codec,
 	opts ...AppOption) NetApplication {
@@ -119,7 +117,7 @@ func newTestAppWithCodec(t assert.TestingT,
 	}
 	assert.NoError(t, os.RemoveAll(testUnixSocket[7:]))
 	opts = append(opts, WithAppSessionOptions(WithSessionCodec(codec)))
-	app, err := NewApplication(address, handleFunc, opts...)
+	app, err := NewApplicationWithListenAddress(addresses, handleFunc, opts...)
 	assert.NoError(t, err)
 	return app
 }
