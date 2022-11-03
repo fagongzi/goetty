@@ -22,7 +22,7 @@ func TestProxy(t *testing.T) {
 		assert.NoError(t, proxy.Stop())
 	}()
 
-	upstream1 := newTestApp(t, upstream1Address, func(i IOSession, a any, u uint64) error {
+	upstream1 := newTestApp(t, []string{upstream1Address}, func(i IOSession, a any, u uint64) error {
 		return i.Write("upstream1", WriteOptions{Flush: true})
 	})
 	assert.NoError(t, upstream1.Start())
@@ -30,7 +30,7 @@ func TestProxy(t *testing.T) {
 		assert.NoError(t, upstream1.Stop())
 	}()
 
-	upstream2 := newTestApp(t, upstream2Address, func(i IOSession, a any, u uint64) error {
+	upstream2 := newTestApp(t, []string{upstream2Address}, func(i IOSession, a any, u uint64) error {
 		return i.Write("upstream2", WriteOptions{Flush: true})
 	})
 	assert.NoError(t, upstream2.Start())

@@ -23,7 +23,7 @@ func TestNormal(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			cnt := uint64(0)
-			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
 				atomic.StoreUint64(&cnt, received)
 				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
 				return nil
@@ -60,7 +60,7 @@ func TestUseConn(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			conns := map[string]net.Conn{}
-			app := newTestApp(t, addr, func(rs IOSession, v any, received uint64) error {
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, v any, received uint64) error {
 				msg := v.(string)
 				if msg == "regist" {
 					conns[fmt.Sprintf("%d", rs.ID())] = rs.RawConn()
@@ -113,7 +113,7 @@ func TestTLSNormal(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
 				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
 				return nil
 			}, WithAppTLSFromCertAndKey(
@@ -149,7 +149,7 @@ func TestReadWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
 				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
@@ -174,7 +174,7 @@ func TestWriteWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, addr, func(rs IOSession, msg any, received uint64) error {
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
 				rs.Write(msg, WriteOptions{Flush: true})
 				return nil
 			})
@@ -204,7 +204,7 @@ func TestCloseOnAwareCreated(t *testing.T) {
 func BenchmarkWriteAndRead(b *testing.B) {
 	b.ReportAllocs()
 	codec := newBenchmarkStringCodec()
-	app := newTestAppWithCodec(b, testUnixSocket, func(rs IOSession, msg any, received uint64) error {
+	app := newTestAppWithCodec(b, []string{testUnixSocket}, func(rs IOSession, msg any, received uint64) error {
 		rs.Write(msg, WriteOptions{Flush: true})
 		return nil
 	}, codec)
