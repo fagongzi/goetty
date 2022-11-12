@@ -40,6 +40,14 @@ func WithIOCopyBufferSize(value int) Option {
 	}
 }
 
+// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// if it is, it will reset the reader and writer index. Default is true.
+func WithDisableCompactAfterGow(value bool) Option {
+	return func(bb *ByteBuf) {
+		bb.options.disableCompactAfterGrow = value
+	}
+}
+
 // Slice the slice of byte buf
 type Slice struct {
 	from, to int // [from, to)
@@ -74,9 +82,10 @@ type ByteBuf struct {
 	markedIndex int
 
 	options struct {
-		alloc            Allocator
-		minGrowSize      int
-		ioCopyBufferSize int
+		alloc                   Allocator
+		minGrowSize             int
+		ioCopyBufferSize        int
+		disableCompactAfterGrow bool
 	}
 }
 
@@ -419,10 +428,15 @@ func (b *ByteBuf) Grow(n int) {
 		}
 
 		newBuf := b.options.alloc.Alloc(target)
-		offset := b.writerIndex - b.readerIndex
-		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
-		b.readerIndex = 0
-		b.writerIndex = offset
+		if b.options.disableCompactAfterGrow {
+			copy(newBuf, b.buf)
+		} else {
+			offset := b.writerIndex - b.readerIndex
+			copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
+			b.readerIndex = 0
+			b.writerIndex = offset
+		}
+
 		b.options.alloc.Free(b.buf)
 		b.buf = newBuf
 	}

@@ -105,6 +105,14 @@ func WithSessionTLS(tlsConfig *tls.Config) Option {
 	}
 }
 
+// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// if it is, it will reset the reader and writer index. Default is true.
+func WithDisableCompactAfterGow() Option {
+	return func(bio *baseIO) {
+		bio.options.disableCompactAfterGow = true
+	}
+}
+
 // WithSessionTLSFromCertAndKeys set tls for client
 func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSkipVerify bool) Option {
 	return func(bio *baseIO) {
@@ -196,6 +204,7 @@ type baseIO struct {
 		allocator                         buf.Allocator
 		dial                              func(network, address string) (net.Conn, error)
 		disableAutoResetInBuffer          bool
+		disableCompactAfterGow            bool
 	}
 
 	atomic struct {
@@ -495,8 +504,12 @@ func (bio *baseIO) getState() int32 {
 func (bio *baseIO) initConn() {
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
-	bio.in = buf.NewByteBuf(bio.options.readBufSize, buf.WithMemAllocator(bio.options.allocator))
-	bio.out = buf.NewByteBuf(bio.options.writeBufSize, buf.WithMemAllocator(bio.options.allocator))
+	bio.in = buf.NewByteBuf(bio.options.readBufSize,
+		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
+		buf.WithMemAllocator(bio.options.allocator))
+	bio.out = buf.NewByteBuf(bio.options.writeBufSize,
+		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
+		buf.WithMemAllocator(bio.options.allocator))
 	atomic.StoreInt32(&bio.state, stateConnected)
 	bio.logger.Debug("session init completed")
 }
