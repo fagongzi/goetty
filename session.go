@@ -105,11 +105,11 @@ func WithSessionTLS(tlsConfig *tls.Config) Option {
 	}
 }
 
-// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// WithSessionDisableCompactAfterGrow set Set whether the buffer should be compressed,
 // if it is, it will reset the reader and writer index. Default is true.
-func WithDisableCompactAfterGow() Option {
+func WithSessionDisableCompactAfterGrow() Option {
 	return func(bio *baseIO) {
-		bio.options.disableCompactAfterGow = true
+		bio.options.disableCompactAfterGrow = true
 	}
 }
 
@@ -204,7 +204,7 @@ type baseIO struct {
 		allocator                         buf.Allocator
 		dial                              func(network, address string) (net.Conn, error)
 		disableAutoResetInBuffer          bool
-		disableCompactAfterGow            bool
+		disableCompactAfterGrow           bool
 	}
 
 	atomic struct {
@@ -505,10 +505,10 @@ func (bio *baseIO) initConn() {
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize,
-		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
+		buf.WithDisableCompactAfterGrow(bio.options.disableCompactAfterGrow),
 		buf.WithMemAllocator(bio.options.allocator))
 	bio.out = buf.NewByteBuf(bio.options.writeBufSize,
-		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
+		buf.WithDisableCompactAfterGrow(bio.options.disableCompactAfterGrow),
 		buf.WithMemAllocator(bio.options.allocator))
 	atomic.StoreInt32(&bio.state, stateConnected)
 	bio.logger.Debug("session init completed")
