@@ -206,3 +206,25 @@ func TestIOCopyWithEOF(t *testing.T) {
 	assert.Equal(t, int64(0), n)
 	assert.Equal(t, io.EOF, err)
 }
+
+func TestGrow(t *testing.T) {
+	n := 1024 * 1024
+	buf := NewByteBuf(10)
+	buf.readerIndex = 1
+	buf.writerIndex = 5
+
+	buf.MustWrite(make([]byte, n))
+	assert.Equal(t, 0, buf.readerIndex)
+	assert.Equal(t, n+4, buf.writerIndex)
+}
+
+func TestGrowWithDisableResetReadAndWrite(t *testing.T) {
+	n := 1024 * 1024
+	buf := NewByteBuf(10, WithDisableResetReadAndWriteIndexAfterGrow(true))
+	buf.readerIndex = 1
+	buf.writerIndex = 5
+
+	buf.MustWrite(make([]byte, n))
+	assert.Equal(t, 1, buf.readerIndex)
+	assert.Equal(t, 5+n, buf.GetWriteIndex())
+}

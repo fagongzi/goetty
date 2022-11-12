@@ -40,6 +40,14 @@ func WithIOCopyBufferSize(value int) Option {
 	}
 }
 
+// WithDisableResetReadAndWriteIndexAfterGrow disable reset read and write index after
+// grow.
+func WithDisableResetReadAndWriteIndexAfterGrow(value bool) Option {
+	return func(bb *ByteBuf) {
+		bb.options.disableResetReadAndWriteIndexAfterGrow = value
+	}
+}
+
 // Slice the slice of byte buf
 type Slice struct {
 	from, to int // [from, to)
@@ -74,9 +82,10 @@ type ByteBuf struct {
 	markedIndex int
 
 	options struct {
-		alloc            Allocator
-		minGrowSize      int
-		ioCopyBufferSize int
+		alloc                                  Allocator
+		minGrowSize                            int
+		ioCopyBufferSize                       int
+		disableResetReadAndWriteIndexAfterGrow bool
 	}
 }
 
@@ -419,10 +428,15 @@ func (b *ByteBuf) Grow(n int) {
 		}
 
 		newBuf := b.options.alloc.Alloc(target)
-		offset := b.writerIndex - b.readerIndex
-		copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
-		b.readerIndex = 0
-		b.writerIndex = offset
+		if b.options.disableResetReadAndWriteIndexAfterGrow {
+			copy(newBuf, b.buf)
+		} else {
+			offset := b.writerIndex - b.readerIndex
+			copy(newBuf, b.buf[b.readerIndex:b.writerIndex])
+			b.readerIndex = 0
+			b.writerIndex = offset
+		}
+
 		b.options.alloc.Free(b.buf)
 		b.buf = newBuf
 	}
