@@ -105,9 +105,9 @@ func WithSessionTLS(tlsConfig *tls.Config) Option {
 	}
 }
 
-// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// WithSessionDisableCompactAfterGow set Set whether the buffer should be compressed,
 // if it is, it will reset the reader and writer index. Default is true.
-func WithDisableCompactAfterGow() Option {
+func WithSessionDisableCompactAfterGow() Option {
 	return func(bio *baseIO) {
 		bio.options.disableCompactAfterGow = true
 	}
