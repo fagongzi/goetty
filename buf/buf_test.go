@@ -220,7 +220,7 @@ func TestGrow(t *testing.T) {
 
 func TestGrowWithDisableResetReadAndWrite(t *testing.T) {
 	n := 1024 * 1024
-	buf := NewByteBuf(10, WithDisableResetReadAndWriteIndexAfterGrow(true))
+	buf := NewByteBuf(10, WithDisableCompactAfterGow(true))
 	buf.readerIndex = 1
 	buf.writerIndex = 5
 

@@ -40,11 +40,11 @@ func WithIOCopyBufferSize(value int) Option {
 	}
 }
 
-// WithDisableResetReadAndWriteIndexAfterGrow disable reset read and write index after
-// grow.
-func WithDisableResetReadAndWriteIndexAfterGrow(value bool) Option {
+// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// if it is, it will reset the reader and writer index. Default is true.
+func WithDisableCompactAfterGow(value bool) Option {
 	return func(bb *ByteBuf) {
-		bb.options.disableResetReadAndWriteIndexAfterGrow = value
+		bb.options.disableCompactAfterGrow = value
 	}
 }
 
@@ -82,10 +82,10 @@ type ByteBuf struct {
 	markedIndex int
 
 	options struct {
-		alloc                                  Allocator
-		minGrowSize                            int
-		ioCopyBufferSize                       int
-		disableResetReadAndWriteIndexAfterGrow bool
+		alloc                   Allocator
+		minGrowSize             int
+		ioCopyBufferSize        int
+		disableCompactAfterGrow bool
 	}
 }
 
@@ -428,7 +428,7 @@ func (b *ByteBuf) Grow(n int) {
 		}
 
 		newBuf := b.options.alloc.Alloc(target)
-		if b.options.disableResetReadAndWriteIndexAfterGrow {
+		if b.options.disableCompactAfterGrow {
 			copy(newBuf, b.buf)
 		} else {
 			offset := b.writerIndex - b.readerIndex

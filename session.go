@@ -105,11 +105,11 @@ func WithSessionTLS(tlsConfig *tls.Config) Option {
 	}
 }
 
-// WithDisableResetReadAndWriteIndexAfterGow set disable reset read and write index
-// after in and out buffer gow
-func WithDisableResetReadAndWriteIndexAfterGow() Option {
+// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
+// if it is, it will reset the reader and writer index. Default is true.
+func WithDisableCompactAfterGow() Option {
 	return func(bio *baseIO) {
-		bio.options.disableResetReadAndWriteIndexAfterGow = true
+		bio.options.disableCompactAfterGow = true
 	}
 }
 
@@ -196,15 +196,15 @@ type baseIO struct {
 	writeCopyBuf          []byte
 
 	options struct {
-		aware                                 IOSessionAware
-		codec                                 codec.Codec
-		readBufSize, writeBufSize             int
-		readCopyBufSize, writeCopyBufSize     int
-		disableResetReadAndWriteIndexAfterGow bool
-		releaseMsgFunc                        func(any)
-		allocator                             buf.Allocator
-		dial                                  func(network, address string) (net.Conn, error)
-		disableAutoResetInBuffer              bool
+		aware                             IOSessionAware
+		codec                             codec.Codec
+		readBufSize, writeBufSize         int
+		readCopyBufSize, writeCopyBufSize int
+		releaseMsgFunc                    func(any)
+		allocator                         buf.Allocator
+		dial                              func(network, address string) (net.Conn, error)
+		disableAutoResetInBuffer          bool
+		disableCompactAfterGow            bool
 	}
 
 	atomic struct {
@@ -505,10 +505,10 @@ func (bio *baseIO) initConn() {
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize,
-		buf.WithDisableResetReadAndWriteIndexAfterGrow(bio.options.disableAutoResetInBuffer),
+		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
 		buf.WithMemAllocator(bio.options.allocator))
 	bio.out = buf.NewByteBuf(bio.options.writeBufSize,
-		buf.WithDisableResetReadAndWriteIndexAfterGrow(bio.options.disableAutoResetInBuffer),
+		buf.WithDisableCompactAfterGow(bio.options.disableCompactAfterGow),
 		buf.WithMemAllocator(bio.options.allocator))
 	atomic.StoreInt32(&bio.state, stateConnected)
 	bio.logger.Debug("session init completed")
