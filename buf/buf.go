@@ -40,9 +40,9 @@ func WithIOCopyBufferSize(value int) Option {
 	}
 }
 
-// WithDisableCompactAfterGow set Set whether the buffer should be compressed,
-// if it is, it will reset the reader and writer index. Default is true.
-func WithDisableCompactAfterGow(value bool) Option {
+// disableCompactAfterGrow set Set whether the buffer should be compressed,
+// if it is grow, it will reset the reader and writer index. Default is true.
+func WithDisableCompactAfterGrow(value bool) Option {
 	return func(bb *ByteBuf) {
 		bb.options.disableCompactAfterGrow = value
 	}
