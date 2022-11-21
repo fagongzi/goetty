@@ -169,8 +169,7 @@ func (b *ByteBuf) GetWriteOffset() int {
 // SetWriteIndexByOffset Use writeOffset to reset writeIndex, since offset is a relative
 // position to readIndex, so it won't affect correctness when the underlying buf is expanded.
 func (b *ByteBuf) SetWriteIndexByOffset(writeOffset int) {
-	index := b.Readable() + writeOffset
-	b.SetWriteIndex(index)
+	b.SetWriteIndex(b.readerIndex + writeOffset)
 }
 
 // SetMarkIndex mark data in range [readIndex, markIndex)
