@@ -143,6 +143,8 @@ func (b *ByteBuf) GetReadIndex() int {
 }
 
 // SetWriteIndex set the write index. The data can write into range [writeIndex, len(buf)).
+// Note, since the underlying buf will expand, the previously held writeIndex will become
+// invalid, and in most cases this method should use SetWriteIndexByOffset instead.
 func (b *ByteBuf) SetWriteIndex(writeIndex int) {
 	if writeIndex < b.readerIndex || writeIndex > b.capacity() {
 		panic(fmt.Sprintf("invalid writeIndex %d, capacity %d, readIndex %d",
@@ -155,6 +157,20 @@ func (b *ByteBuf) SetWriteIndex(writeIndex int) {
 // GetWriteIndex get the write index
 func (b *ByteBuf) GetWriteIndex() int {
 	return b.writerIndex
+}
+
+// GetWriteOffset returns the offset of the current writeIndex relative to the ReadIndex.
+// GetWriteIndex returns an absolute position, which will fail when the underlying buf is
+// expanded.
+func (b *ByteBuf) GetWriteOffset() int {
+	return b.Readable()
+}
+
+// SetWriteIndexByOffset Use writeOffset to reset writeIndex, since offset is a relative
+// position to readIndex, so it won't affect correctness when the underlying buf is expanded.
+func (b *ByteBuf) SetWriteIndexByOffset(writeOffset int) {
+	index := b.Readable() + writeOffset
+	b.SetWriteIndex(index)
 }
 
 // SetMarkIndex mark data in range [readIndex, markIndex)
