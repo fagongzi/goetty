@@ -345,6 +345,14 @@ func (bio *baseIO) UseConn(conn net.Conn) {
 }
 
 func (bio *baseIO) Close() error {
+	ref := bio.unRef()
+	if ref < 0 {
+		panic("invalid ref count")
+	}
+	if ref > 0 {
+		return nil
+	}
+
 	old := bio.getState()
 	switch old {
 	case stateReadyToConnect, stateClosed:
@@ -361,14 +369,6 @@ func (bio *baseIO) Close() error {
 			return nil
 		}
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
-	}
-
-	ref := bio.unRef()
-	if ref < 0 {
-		panic("invalid ref count")
-	}
-	if ref > 0 {
-		return nil
 	}
 
 	bio.closeConn()
