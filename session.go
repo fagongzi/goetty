@@ -345,6 +345,8 @@ func (bio *baseIO) UseConn(conn net.Conn) {
 }
 
 func (bio *baseIO) Close() error {
+	bio.closeConn()
+
 	ref := bio.unRef()
 	if ref < 0 {
 		panic("invalid ref count")
@@ -369,7 +371,6 @@ OUTER:
 		}
 	}
 
-	bio.closeConn()
 	if bio.out != nil {
 		bio.out.Close()
 	}
