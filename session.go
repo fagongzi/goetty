@@ -353,27 +353,30 @@ func (bio *baseIO) Close() error {
 		return nil
 	}
 
-	old := bio.getState()
-	switch old {
-	case stateReadyToConnect, stateClosed:
-		return nil
-	case stateConnecting:
-		return fmt.Errorf("the session is connecting in other goroutine")
-	case stateConnected:
-		break
-	}
-
-	if !atomic.CompareAndSwapInt32(&bio.state, stateConnected, stateClosed) {
-		current := bio.getState()
-		if current == stateClosed {
-			return nil
+OUTER:
+	for {
+		old := bio.getState()
+		switch old {
+		case stateReadyToConnect, stateClosed:
+			break OUTER
+		case stateConnecting:
+			return fmt.Errorf("the session is connecting in other goroutine")
+		case stateConnected:
 		}
-		return fmt.Errorf("the session is closing or connecting is other goroutine")
+
+		if atomic.CompareAndSwapInt32(&bio.state, stateConnected, stateClosed) {
+			break
+		}
 	}
 
 	bio.closeConn()
-	bio.out.Close()
-	bio.in.Close()
+	if bio.out != nil {
+		bio.out.Close()
+	}
+	if bio.in != nil {
+		bio.in.Close()
+	}
+
 	atomic.StoreInt32(&bio.state, stateClosed)
 	if bio.options.aware != nil {
 		bio.options.aware.Closed(bio)

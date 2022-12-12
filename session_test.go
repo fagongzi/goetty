@@ -249,6 +249,7 @@ type testAware struct {
 }
 
 func (ta *testAware) Created(rs IOSession) {
+	rs.Ref()
 	_ = rs.Close()
 }
 
