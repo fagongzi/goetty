@@ -42,9 +42,11 @@ func TestStop(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, testListenAddresses, func(i IOSession, a any, u uint64) error {
-				return i.Write(a, WriteOptions{Flush: true})
-			}).(*server)
+			app := newTestApp(t,
+				testListenAddresses,
+				func(i IOSession[string, string], a string, u uint64) error {
+					return i.Write(a, WriteOptions{Flush: true})
+				}).(*server[string, string])
 			assert.NoError(t, app.Start())
 
 			n := 10
@@ -54,7 +56,7 @@ func TestStop(t *testing.T) {
 				err := session.Connect(addr, time.Second)
 				assert.NoError(t, err)
 				wg.Add(1)
-				go func(conn IOSession) {
+				go func(conn IOSession[string, string]) {
 					for {
 						_, err := conn.Read(ReadOptions{})
 						if err != nil {
@@ -83,13 +85,16 @@ func TestStartWithTLS(t *testing.T) {
 
 	for name := range testAddresses {
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, testListenAddresses, func(i IOSession, a any, u uint64) error {
-				return i.Write(a, WriteOptions{Flush: true})
-			}, WithAppTLSFromCertAndKey(
-				"./etc/server-cert.pem",
-				"./etc/server-key.pem",
-				"./etc/ca.pem",
-				true))
+			app := newTestApp(t,
+				testListenAddresses,
+				func(i IOSession[string, string], a string, u uint64) error {
+					return i.Write(a, WriteOptions{Flush: true})
+				},
+				WithAppTLSFromCertAndKey[string, string](
+					"./etc/server-cert.pem",
+					"./etc/server-key.pem",
+					"./etc/ca.pem",
+					true))
 			assert.NoError(t, app.Start())
 			defer func() {
 				assert.NoError(t, app.Stop())
@@ -100,18 +105,23 @@ func TestStartWithTLS(t *testing.T) {
 
 func newTestApp(t assert.TestingT,
 	addresses []string,
-	handleFunc func(IOSession, any, uint64) error,
-	opts ...AppOption) NetApplication {
-	return newTestAppWithCodec(t, addresses, handleFunc, simple.NewStringCodec(), opts...)
+	handleFunc func(IOSession[string, string], string, uint64) error,
+	opts ...AppOption[string, string]) NetApplication[string, string] {
+	return newTestAppWithCodec(
+		t,
+		addresses,
+		handleFunc,
+		simple.NewStringCodec(),
+		opts...)
 }
 
-func newTestAppWithCodec(t assert.TestingT,
+func newTestAppWithCodec[IN string, OUT string](t assert.TestingT,
 	addresses []string,
-	handleFunc func(IOSession, any, uint64) error,
-	codec codec.Codec,
-	opts ...AppOption) NetApplication {
+	handleFunc func(IOSession[string, string], string, uint64) error,
+	codec codec.Codec[string, string],
+	opts ...AppOption[string, string]) NetApplication[string, string] {
 	if handleFunc == nil {
-		handleFunc = func(i1 IOSession, i2 any, u uint64) error {
+		handleFunc = func(i1 IOSession[string, string], i2 string, u uint64) error {
 			return nil
 		}
 	}
@@ -122,8 +132,8 @@ func newTestAppWithCodec(t assert.TestingT,
 	return app
 }
 
-func newTestIOSession(t *testing.T, opts ...Option) IOSession {
-	opts = append([]Option{WithSessionCodec(simple.NewStringCodec())}, opts...)
+func newTestIOSession(t *testing.T, opts ...Option[string, string]) IOSession[string, string] {
+	opts = append([]Option[string, string]{WithSessionCodec(simple.NewStringCodec())}, opts...)
 	return NewIOSession(opts...)
 }
 

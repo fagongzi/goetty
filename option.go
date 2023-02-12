@@ -14,9 +14,9 @@ const (
 )
 
 // IOSessionAware io session aware
-type IOSessionAware interface {
+type IOSessionAware[IN any, OUT any] interface {
 	// Created session created
-	Created(IOSession)
+	Created(IOSession[IN, OUT])
 	//Closed session closed
-	Closed(IOSession)
+	Closed(IOSession[IN, OUT])
 }

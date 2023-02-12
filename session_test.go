@@ -23,11 +23,13 @@ func TestNormal(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			cnt := uint64(0)
-			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
-				atomic.StoreUint64(&cnt, received)
-				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
-				return nil
-			})
+			app := newTestApp(t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					atomic.StoreUint64(&cnt, received)
+					assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+					return nil
+				})
 			app.Start()
 			defer app.Stop()
 
@@ -60,21 +62,22 @@ func TestUseConn(t *testing.T) {
 		addr := address
 		t.Run(name, func(t *testing.T) {
 			conns := map[string]net.Conn{}
-			app := newTestApp(t, testListenAddresses, func(rs IOSession, v any, received uint64) error {
-				msg := v.(string)
-				if msg == "regist" {
-					conns[fmt.Sprintf("%d", rs.ID())] = rs.RawConn()
-					assert.NoError(t, rs.Write(fmt.Sprintf("%d", rs.ID()), WriteOptions{Flush: true}))
+			app := newTestApp(t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					if msg == "regist" {
+						conns[fmt.Sprintf("%d", rs.ID())] = rs.RawConn()
+						assert.NoError(t, rs.Write(fmt.Sprintf("%d", rs.ID()), WriteOptions{Flush: true}))
+						return nil
+					} else if strings.HasPrefix(msg, "use:") {
+						id := strings.Split(msg, ":")[1]
+						rs.UseConn(conns[id])
+						assert.NoError(t, rs.Write("OK", WriteOptions{Flush: true}))
+						return nil
+					}
+					assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
 					return nil
-				} else if strings.HasPrefix(msg, "use:") {
-					id := strings.Split(msg, ":")[1]
-					rs.UseConn(conns[id])
-					assert.NoError(t, rs.Write("OK", WriteOptions{Flush: true}))
-					return nil
-				}
-				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
-				return nil
-			})
+				})
 			app.Start()
 			defer app.Stop()
 
@@ -113,19 +116,22 @@ func TestTLSNormal(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
-				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
-				return nil
-			}, WithAppTLSFromCertAndKey(
-				"./etc/server-cert.pem",
-				"./etc/server-key.pem",
-				"./etc/ca.pem",
-				true))
+			app := newTestApp(t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+					return nil
+				},
+				WithAppTLSFromCertAndKey[string, string](
+					"./etc/server-cert.pem",
+					"./etc/server-key.pem",
+					"./etc/ca.pem",
+					true))
 			app.Start()
 			defer app.Stop()
 
 			client := newTestIOSession(t,
-				WithSessionTLSFromCertAndKeys(
+				WithSessionTLSFromCertAndKeys[string, string](
 					"./etc/client-cert.pem",
 					"./etc/client-key.pem",
 					"./etc/ca.pem",
@@ -149,10 +155,12 @@ func TestReadWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
-				rs.Write(msg, WriteOptions{Flush: true})
-				return nil
-			})
+			app := newTestApp(t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					rs.Write(msg, WriteOptions{Flush: true})
+					return nil
+				})
 			app.Start()
 			defer app.Stop()
 
@@ -174,10 +182,12 @@ func TestWriteWithTimeout(t *testing.T) {
 	for name, address := range testAddresses {
 		addr := address
 		t.Run(name, func(t *testing.T) {
-			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
-				rs.Write(msg, WriteOptions{Flush: true})
-				return nil
-			})
+			app := newTestApp(t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					rs.Write(msg, WriteOptions{Flush: true})
+					return nil
+				})
 			app.Start()
 			defer func() {
 				assert.NoError(t, app.Stop())
@@ -197,17 +207,19 @@ func TestWriteWithTimeout(t *testing.T) {
 
 func TestCloseOnAwareCreated(t *testing.T) {
 	defer leaktest.AfterTest(t)()
-	s := NewIOSession(WithSessionAware(&testAware{}))
+	s := NewIOSession(WithSessionAware[string, string](&testAware[string, string]{}))
 	assert.NoError(t, s.Close())
 }
 
 func BenchmarkWriteAndRead(b *testing.B) {
 	b.ReportAllocs()
 	codec := newBenchmarkStringCodec()
-	app := newTestAppWithCodec(b, []string{testUnixSocket}, func(rs IOSession, msg any, received uint64) error {
-		rs.Write(msg, WriteOptions{Flush: true})
-		return nil
-	}, codec)
+	app := newTestAppWithCodec(b,
+		[]string{testUnixSocket},
+		func(rs IOSession[string, string], msg string, received uint64) error {
+			rs.Write(msg, WriteOptions{Flush: true})
+			return nil
+		}, codec)
 	app.Start()
 	defer app.Stop()
 
@@ -225,34 +237,33 @@ func BenchmarkWriteAndRead(b *testing.B) {
 	}
 }
 
-func newBenchmarkStringCodec() codec.Codec {
-	return length.New(&stringCodec{})
+func newBenchmarkStringCodec() codec.Codec[string, string] {
+	return length.New[string, string](&stringCodec{})
 }
 
 type stringCodec struct {
 }
 
-func (c *stringCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+func (c *stringCodec) Decode(in *buf.ByteBuf) (string, bool, error) {
 	in.Skip(in.GetMarkedDataLen())
 	return "OK", true, nil
 }
 
-func (c *stringCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
-	msg, _ := data.(string)
+func (c *stringCodec) Encode(msg string, out *buf.ByteBuf, conn io.Writer) error {
 	for _, d := range msg {
 		out.WriteByte(byte(d))
 	}
 	return nil
 }
 
-type testAware struct {
+type testAware[IN any, OUT any] struct {
 }
 
-func (ta *testAware) Created(rs IOSession) {
+func (ta *testAware[IN, OUT]) Created(rs IOSession[IN, OUT]) {
 	rs.Ref()
 	_ = rs.Close()
 }
 
-func (ta *testAware) Closed(rs IOSession) {
+func (ta *testAware[IN, OUT]) Closed(rs IOSession[IN, OUT]) {
 
 }

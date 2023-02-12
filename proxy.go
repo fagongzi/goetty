@@ -20,17 +20,17 @@ type Proxy interface {
 }
 
 // NewProxy returns a simple tcp proxy
-func NewProxy(address string, logger *zap.Logger) Proxy {
-	return &proxy{
+func NewProxy[IN any, OUT any](address string, logger *zap.Logger) Proxy {
+	return &proxy[IN, OUT]{
 		address: address,
 		logger:  adjustLogger(logger),
 	}
 }
 
-type proxy struct {
+type proxy[IN any, OUT any] struct {
 	logger  *zap.Logger
 	address string
-	server  NetApplication
+	server  NetApplication[IN, OUT]
 	mu      struct {
 		sync.Mutex
 		seq       uint64
@@ -38,8 +38,11 @@ type proxy struct {
 	}
 }
 
-func (p *proxy) Start() error {
-	server, err := NewApplication(p.address, nil, WithAppHandleSessionFunc(p.handleSession))
+func (p *proxy[IN, OUT]) Start() error {
+	server, err := NewApplication(
+		p.address,
+		nil,
+		WithAppHandleSessionFunc(p.handleSession))
 	if err != nil {
 		return err
 	}
@@ -47,11 +50,11 @@ func (p *proxy) Start() error {
 	return p.server.Start()
 }
 
-func (p *proxy) Stop() error {
+func (p *proxy[IN, OUT]) Stop() error {
 	return p.server.Stop()
 }
 
-func (p *proxy) AddUpStream(address string, connectTimeout time.Duration) {
+func (p *proxy[IN, OUT]) AddUpStream(address string, connectTimeout time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.mu.upstreams = append(p.mu.upstreams, &upstream{
@@ -60,7 +63,7 @@ func (p *proxy) AddUpStream(address string, connectTimeout time.Duration) {
 	})
 }
 
-func (p *proxy) getUpStream() *upstream {
+func (p *proxy[IN, OUT]) getUpStream() *upstream {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -73,12 +76,12 @@ func (p *proxy) getUpStream() *upstream {
 	return up
 }
 
-func (p *proxy) handleSession(conn IOSession) error {
+func (p *proxy[IN, OUT]) handleSession(conn IOSession[IN, OUT]) error {
 	upstream := p.getUpStream()
 	if upstream == nil {
 		return errors.New("no upstream")
 	}
-	upstreamConn := NewIOSession()
+	upstreamConn := NewIOSession[IN, OUT]()
 	err := upstreamConn.Connect(upstream.address, upstream.connectTimeout)
 	if err != nil {
 		return err

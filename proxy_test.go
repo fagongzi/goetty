@@ -16,23 +16,27 @@ var (
 
 func TestProxy(t *testing.T) {
 	assert.NoError(t, os.RemoveAll(proxyAddress[7:]))
-	proxy := NewProxy(proxyAddress, nil)
+	proxy := NewProxy[string, string](proxyAddress, nil)
 	assert.NoError(t, proxy.Start())
 	defer func() {
 		assert.NoError(t, proxy.Stop())
 	}()
 
-	upstream1 := newTestApp(t, []string{upstream1Address}, func(i IOSession, a any, u uint64) error {
-		return i.Write("upstream1", WriteOptions{Flush: true})
-	})
+	upstream1 := newTestApp(t,
+		[]string{upstream1Address},
+		func(i IOSession[string, string], a string, u uint64) error {
+			return i.Write("upstream1", WriteOptions{Flush: true})
+		})
 	assert.NoError(t, upstream1.Start())
 	defer func() {
 		assert.NoError(t, upstream1.Stop())
 	}()
 
-	upstream2 := newTestApp(t, []string{upstream2Address}, func(i IOSession, a any, u uint64) error {
-		return i.Write("upstream2", WriteOptions{Flush: true})
-	})
+	upstream2 := newTestApp(t,
+		[]string{upstream2Address},
+		func(i IOSession[string, string], a string, u uint64) error {
+			return i.Write("upstream2", WriteOptions{Flush: true})
+		})
 	assert.NoError(t, upstream2.Start())
 	defer func() {
 		assert.NoError(t, upstream2.Stop())

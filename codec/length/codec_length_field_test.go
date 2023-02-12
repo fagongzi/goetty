@@ -10,7 +10,7 @@ import (
 
 func TestEncode(t *testing.T) {
 	baseCodec := &bytesCodec{}
-	codec := New(baseCodec)
+	codec := New[[]byte, []byte](baseCodec)
 	buf := buf.NewByteBuf(32)
 	err := codec.Encode([]byte("hello"), buf, nil)
 	assert.NoError(t, err)
@@ -36,12 +36,11 @@ func TestEncode(t *testing.T) {
 type bytesCodec struct {
 }
 
-func (c *bytesCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+func (c *bytesCodec) Decode(in *buf.ByteBuf) ([]byte, bool, error) {
 	return in.ReadMarkedData(), true, nil
 }
 
-func (c *bytesCodec) Encode(data any, out *buf.ByteBuf, conn io.Writer) error {
-	bytes, _ := data.([]byte)
-	out.Write(bytes)
+func (c *bytesCodec) Encode(data []byte, out *buf.ByteBuf, conn io.Writer) error {
+	out.Write(data)
 	return nil
 }

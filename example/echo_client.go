@@ -11,7 +11,7 @@ import (
 // EchoClient echo client
 type EchoClient struct {
 	serverAddr string
-	conn       goetty.IOSession
+	conn       goetty.IOSession[string, string]
 }
 
 // NewEchoClient new client
