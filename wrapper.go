@@ -1,15 +1,24 @@
 package goetty
 
-import "net"
+import (
+	"io"
+	"net"
+)
 
 type WrappedConn struct {
 	net.Conn
-	s IOSession
+
+	reader io.Reader
+}
+
+func NewWrappedConn(conn net.Conn, session IOSession) *WrappedConn {
+	reader := io.MultiReader(session.InBuf(), conn)
+	return &WrappedConn{
+		Conn:   conn,
+		reader: reader,
+	}
 }
 
 func (c *WrappedConn) Read(b []byte) (n int, err error) {
-	if c.s.OutBuf().Readable() > 0 {
-		return c.s.OutBuf().Read(b)
-	}
-	return c.Conn.Read(b)
+	return c.reader.Read(b)
 }
