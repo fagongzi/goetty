@@ -345,10 +345,7 @@ func (bio *baseIO) RawConn() net.Conn {
 }
 
 func (bio *baseIO) Conn() net.Conn {
-	return &WrappedConn{
-		Conn: bio.conn,
-		s:    bio,
-	}
+	return NewWrappedConn(bio.conn, bio)
 }
 
 func (bio *baseIO) UseConn(conn net.Conn) {
