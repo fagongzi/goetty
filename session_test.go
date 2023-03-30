@@ -2,6 +2,7 @@ package goetty
 
 import (
 	"fmt"
+	"github.com/fagongzi/goetty/v2/codec/simple"
 	"io"
 	"net"
 	"strings"
@@ -199,6 +200,46 @@ func TestCloseOnAwareCreated(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	s := NewIOSession(WithSessionAware(&testAware{}))
 	assert.NoError(t, s.Close())
+}
+
+func TestBufferedConn(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			cnt := uint64(0)
+			app := newTestApp(t, testListenAddresses, func(rs IOSession, msg any, received uint64) error {
+				atomic.StoreUint64(&cnt, received)
+				assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+				return nil
+			})
+			app.Start()
+			defer app.Stop()
+
+			client := newTestIOSession(t)
+			err := client.Connect(addr, time.Second)
+			assert.NoError(t, err)
+			assert.True(t, client.Connected())
+
+			assert.NoError(t, client.Write("p1", WriteOptions{Flush: true}))
+			assert.NoError(t, client.Write("p2", WriteOptions{Flush: true}))
+			reply, err := client.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, "p1", reply)
+
+			bc := client.BufferedConn()
+			assert.NoError(t, bc.SetReadDeadline(time.Now().Add(time.Second)))
+			readBuf := buf.NewByteBuf(64)
+			n, err := io.CopyBuffer(readBuf, bc, make([]byte, 64))
+			assert.NoError(t, err)
+			assert.True(t, n > 0)
+			msg, _, _ := simple.NewStringCodec().Decode(readBuf)
+			assert.Equal(t, "p2", msg)
+
+			assert.NoError(t, client.Disconnect())
+		})
+	}
 }
 
 func BenchmarkWriteAndRead(b *testing.B) {
