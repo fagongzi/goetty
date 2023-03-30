@@ -174,10 +174,13 @@ type IOSession interface {
 	Flush(timeout time.Duration) error
 	// RemoteAddress returns remote address, include ip and port
 	RemoteAddress() string
-	// RawConn return raw tcp conn
+	// RawConn return raw tcp conn, RawConn should only be used to access the underlying
+	// attributes of the tcp conn, e.g. set keepalive attributes. Read from RawConn directly
+	// may lose data since the bytes might have been copied to the InBuf.
+	// To perform read/write operation on the underlying tcp conn, use BufferedConn instead.
 	RawConn() net.Conn
-	// Conn return a wrapped tcp conn
-	Conn() net.Conn
+	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first,
+	BufferedConn() net.Conn
 	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
 	// writes cannot be handled in other goroutines until UseConn is called.
 	UseConn(net.Conn)
@@ -344,8 +347,8 @@ func (bio *baseIO) RawConn() net.Conn {
 	return bio.conn
 }
 
-func (bio *baseIO) Conn() net.Conn {
-	return NewWrappedConn(bio.conn, bio)
+func (bio *baseIO) BufferedConn() net.Conn {
+	return newBufferedConn(bio.conn, bio)
 }
 
 func (bio *baseIO) UseConn(conn net.Conn) {
