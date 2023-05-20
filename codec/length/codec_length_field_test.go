@@ -33,6 +33,15 @@ func TestEncode(t *testing.T) {
 	assert.Equal(t, "world", string(v))
 }
 
+func TestDecodeWithZeroLength(t *testing.T) {
+	baseCodec := &bytesCodec{}
+	codec := New(baseCodec)
+	buf := buf.NewByteBuf(32)
+	buf.WriteInt(0)
+	_, _, err := codec.Decode(buf)
+	assert.Error(t, err)
+}
+
 type bytesCodec struct {
 }
 
