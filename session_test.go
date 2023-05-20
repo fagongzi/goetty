@@ -2,7 +2,6 @@ package goetty
 
 import (
 	"fmt"
-	"github.com/fagongzi/goetty/v2/codec/simple"
 	"io"
 	"net"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/fagongzi/goetty/v2/codec"
 	"github.com/fagongzi/goetty/v2/codec/length"
+	"github.com/fagongzi/goetty/v2/codec/simple"
 	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 )
@@ -228,7 +228,7 @@ func TestBufferedConn(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, "p1", reply)
 
-			bc := client.BufferedConn()
+			bc := client.(BufferedIOSession).BufferedConn()
 			assert.NoError(t, bc.SetReadDeadline(time.Now().Add(time.Second)))
 			readBuf := buf.NewByteBuf(64)
 			n, err := io.CopyBuffer(readBuf, bc, make([]byte, 64))

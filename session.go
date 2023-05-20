@@ -179,8 +179,6 @@ type IOSession interface {
 	// may lose data since the bytes might have been copied to the InBuf.
 	// To perform read/write operation on the underlying tcp conn, use BufferedConn instead.
 	RawConn() net.Conn
-	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first,
-	BufferedConn() net.Conn
 	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
 	// writes cannot be handled in other goroutines until UseConn is called.
 	UseConn(net.Conn)
@@ -188,6 +186,12 @@ type IOSession interface {
 	OutBuf() *buf.ByteBuf
 	// InBuf returns inbuf which used to decode bytes to message
 	InBuf() *buf.ByteBuf
+}
+
+// BufferedIOSession is a IOSession that can read from the in-buffer first
+type BufferedIOSession interface {
+	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first
+	BufferedConn() net.Conn
 }
 
 type baseIO struct {
