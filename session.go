@@ -184,14 +184,14 @@ type IOSession interface {
 	UseConn(net.Conn)
 	// OutBuf returns bytebuf which used to encode message into bytes
 	OutBuf() *buf.ByteBuf
-	// InBuf returns inbuf which used to decode bytes to message
-	InBuf() *buf.ByteBuf
 }
 
 // BufferedIOSession is a IOSession that can read from the in-buffer first
 type BufferedIOSession interface {
 	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first
 	BufferedConn() net.Conn
+	// InBuf returns inbuf which used to decode bytes to message
+	InBuf() *buf.ByteBuf
 }
 
 type baseIO struct {
