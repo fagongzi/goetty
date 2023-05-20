@@ -55,8 +55,8 @@ func (c *lengthCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
 	if length > c.maxBodySize {
 		return nil, false, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
 	}
-	if length == 0 {
-		return nil, false, fmt.Errorf("zero body size")
+	if length <= 0 {
+		return nil, false, fmt.Errorf("invalid body size: %d", length)
 	}
 
 	skip := minFrameLength + c.lengthAdjustment
