@@ -144,6 +144,32 @@ func TestTLSNormal(t *testing.T) {
 	}
 }
 
+func TestConnWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	addr := "192.168.100.200:8888"
+	client := newTestIOSession(t)
+	defer client.Close()
+
+	err := client.Connect(addr, time.Millisecond*200)
+	assert.Equal(t, true, err.(net.Error).Timeout())
+}
+
+func TestTLSConnWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	addr := "192.168.100.200:8888"
+	client := newTestIOSession(t,
+		WithSessionTLSFromCertAndKeys(
+			"./etc/client-cert.pem",
+			"./etc/client-key.pem",
+			"./etc/ca.pem",
+			true),
+	)
+	err := client.Connect(addr, time.Millisecond*200)
+	assert.Equal(t, true, err.(net.Error).Timeout())
+}
+
 func TestReadWithTimeout(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
