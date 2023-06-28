@@ -99,8 +99,8 @@ func WithSessionReleaseMsgFunc(value func(any)) Option {
 // WithSessionTLS set tls for client
 func WithSessionTLS(tlsConfig *tls.Config) Option {
 	return func(bio *baseIO) {
-		bio.options.dial = func(network, address string) (net.Conn, error) {
-			return tls.Dial(network, address, tlsConfig)
+		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
+			return tls.DialWithDialer(&net.Dialer{Timeout: timeout}, network, address, tlsConfig)
 		}
 	}
 }
@@ -116,7 +116,7 @@ func WithSessionDisableCompactAfterGrow() Option {
 // WithSessionTLSFromCertAndKeys set tls for client
 func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSkipVerify bool) Option {
 	return func(bio *baseIO) {
-		bio.options.dial = func(network, address string) (net.Conn, error) {
+		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
 				return nil, err
@@ -135,7 +135,7 @@ func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSki
 				Certificates:       []tls.Certificate{cert},
 				InsecureSkipVerify: insecureSkipVerify,
 			}
-			return tls.Dial(network, address, conf)
+			return tls.DialWithDialer(&net.Dialer{Timeout: timeout}, network, address, conf)
 		}
 	}
 }
@@ -213,7 +213,7 @@ type baseIO struct {
 		readCopyBufSize, writeCopyBufSize int
 		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
-		dial                              func(network, address string) (net.Conn, error)
+		dial                              func(network, address string, timeout time.Duration) (net.Conn, error)
 		disableAutoResetInBuffer          bool
 		disableCompactAfterGrow           bool
 	}
@@ -262,7 +262,7 @@ func (bio *baseIO) adjust() {
 		bio.options.releaseMsgFunc = func(any) {}
 	}
 	if bio.options.dial == nil {
-		bio.options.dial = net.Dial
+		bio.options.dial = net.DialTimeout
 	}
 }
 
@@ -300,7 +300,7 @@ func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) err
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	conn, err := bio.options.dial(network, address)
+	conn, err := bio.options.dial(network, address, timeout)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
 		return err
