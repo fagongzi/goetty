@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v3/buf"
+	"github.com/fagongzi/goetty/v3/codec"
 	"go.uber.org/zap"
 )
 
@@ -66,8 +66,8 @@ func WithSessionCodec[IN any, OUT any](codec codec.Codec[IN, OUT]) Option[IN, OU
 	}
 }
 
-// WithSessionRWBUfferSize set read/write buf size for IOSession
-func WithSessionRWBUfferSize[IN any, OUT any](read, write int) Option[IN, OUT] {
+// WithSessionRWBufferSize set read/write buf size for IOSession
+func WithSessionRWBufferSize[IN any, OUT any](read, write int) Option[IN, OUT] {
 	return func(bio *baseIO[IN, OUT]) {
 		bio.options.readBufSize = read
 		bio.options.writeBufSize = write
@@ -99,8 +99,8 @@ func WithSessionReleaseMsgFunc[IN any, OUT any](value func(any)) Option[IN, OUT]
 // WithSessionTLS set tls for client
 func WithSessionTLS[IN any, OUT any](tlsConfig *tls.Config) Option[IN, OUT] {
 	return func(bio *baseIO[IN, OUT]) {
-		bio.options.dial = func(network, address string) (net.Conn, error) {
-			return tls.Dial(network, address, tlsConfig)
+		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
+			return tls.DialWithDialer(&net.Dialer{Timeout: timeout}, network, address, tlsConfig)
 		}
 	}
 }
@@ -116,7 +116,7 @@ func WithSessionDisableCompactAfterGrow[IN any, OUT any]() Option[IN, OUT] {
 // WithSessionTLSFromCertAndKeys set tls for client
 func WithSessionTLSFromCertAndKeys[IN any, OUT any](certFile, keyFile, caFile string, insecureSkipVerify bool) Option[IN, OUT] {
 	return func(bio *baseIO[IN, OUT]) {
-		bio.options.dial = func(network, address string) (net.Conn, error) {
+		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
 				return nil, err
@@ -135,7 +135,7 @@ func WithSessionTLSFromCertAndKeys[IN any, OUT any](certFile, keyFile, caFile st
 				Certificates:       []tls.Certificate{cert},
 				InsecureSkipVerify: insecureSkipVerify,
 			}
-			return tls.Dial(network, address, conf)
+			return tls.DialWithDialer(&net.Dialer{Timeout: timeout}, network, address, conf)
 		}
 	}
 }
@@ -168,19 +168,30 @@ type IOSession[IN any, OUT any] interface {
 	// Read read packet from connection
 	Read(option ReadOptions) (IN, error)
 	// Write encodes the msg into a []byte into the buffer according to the codec.Encode.
-	// If flush is set to flase, the data will not be written to the underlying socket.
+	// If flush is set to false, the data will not be written to the underlying socket.
 	Write(msg OUT, options WriteOptions) error
 	// Flush flush the out buffer
 	Flush(timeout time.Duration) error
 	// RemoteAddress returns remote address, include ip and port
 	RemoteAddress() string
-	// RawConn return raw tcp conn
+	// RawConn return raw tcp conn, RawConn should only be used to access the underlying
+	// attributes of the tcp conn, e.g. set keepalive attributes. Read from RawConn directly
+	// may lose data since the bytes might have been copied to the InBuf.
+	// To perform read/write operation on the underlying tcp conn, use BufferedConn instead.
 	RawConn() net.Conn
 	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
 	// writes cannot be handled in other goroutines until UseConn is called.
 	UseConn(net.Conn)
-	// OutBuf returns bytebuf which used to encode message into bytes
+	// OutBuf returns byte buffer which used to encode message into bytes
 	OutBuf() *buf.ByteBuf
+	// InBuf returns input buffer which used to decode bytes to message
+	InBuf() *buf.ByteBuf
+}
+
+// BufferedIOSession is a IOSession that can read from the in-buffer first
+type BufferedIOSession interface {
+	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first
+	BufferedConn() net.Conn
 }
 
 type baseIO[IN any, OUT any] struct {
@@ -202,7 +213,7 @@ type baseIO[IN any, OUT any] struct {
 		readCopyBufSize, writeCopyBufSize int
 		releaseMsgFunc                    func(any)
 		allocator                         buf.Allocator
-		dial                              func(network, address string) (net.Conn, error)
+		dial                              func(network, address string, timeout time.Duration) (net.Conn, error)
 		disableAutoResetInBuffer          bool
 		disableCompactAfterGrow           bool
 	}
@@ -251,7 +262,7 @@ func (bio *baseIO[IN, OUT]) adjust() {
 		bio.options.releaseMsgFunc = func(any) {}
 	}
 	if bio.options.dial == nil {
-		bio.options.dial = net.Dial
+		bio.options.dial = net.DialTimeout
 	}
 }
 
@@ -260,7 +271,7 @@ func (bio *baseIO[IN, OUT]) ID() uint64 {
 }
 
 func (bio *baseIO[IN, OUT]) Connect(addressWithNetwork string, timeout time.Duration) error {
-	network, address, err := parseAdddress(addressWithNetwork)
+	network, address, err := parseAddress(addressWithNetwork)
 	if err != nil {
 		return err
 	}
@@ -289,7 +300,7 @@ func (bio *baseIO[IN, OUT]) Connect(addressWithNetwork string, timeout time.Dura
 		return fmt.Errorf("the session is closing or connecting is other goroutine")
 	}
 
-	conn, err := bio.options.dial(network, address)
+	conn, err := bio.options.dial(network, address, timeout)
 	if nil != err {
 		atomic.StoreInt32(&bio.state, stateReadyToConnect)
 		return err
@@ -338,6 +349,10 @@ func (bio *baseIO[IN, OUT]) unRef() int32 {
 
 func (bio *baseIO[IN, OUT]) RawConn() net.Conn {
 	return bio.conn
+}
+
+func (bio *baseIO[IN, OUT]) BufferedConn() net.Conn {
+	return newBufferedConn[IN, OUT](bio.conn, bio)
 }
 
 func (bio *baseIO[IN, OUT]) UseConn(conn net.Conn) {
@@ -475,6 +490,10 @@ func (bio *baseIO[IN, OUT]) OutBuf() *buf.ByteBuf {
 	return bio.out
 }
 
+func (bio *baseIO[IN, OUT]) InBuf() *buf.ByteBuf {
+	return bio.in
+}
+
 func (bio *baseIO[IN, OUT]) readFromConn(timeout time.Duration) (IN, bool, error) {
 	var v IN
 	if timeout != 0 {
@@ -496,11 +515,11 @@ func (bio *baseIO[IN, OUT]) readFromConn(timeout time.Duration) (IN, bool, error
 func (bio *baseIO[IN, OUT]) closeConn() {
 	if bio.conn != nil {
 		if err := bio.conn.Close(); err != nil {
-			bio.logger.Error("close conneciton failed",
+			bio.logger.Error("close connection failed",
 				zap.Error(err))
 			return
 		}
-		bio.logger.Debug("conneciton disconnected")
+		bio.logger.Debug("connection disconnected")
 	}
 }
 

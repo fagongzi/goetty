@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v3/buf"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,6 +31,20 @@ func TestEncode(t *testing.T) {
 
 	_, v = buf.ReadBytes(n)
 	assert.Equal(t, "world", string(v))
+}
+
+func TestDecodeWithInvalidLength(t *testing.T) {
+	baseCodec := &bytesCodec{}
+	codec := New[[]byte, []byte](baseCodec)
+	buf := buf.NewByteBuf(32)
+	buf.WriteInt(0)
+	_, _, err := codec.Decode(buf)
+	assert.Error(t, err)
+
+	buf.Reset()
+	buf.WriteInt(-1)
+	_, _, err = codec.Decode(buf)
+	assert.Error(t, err)
 }
 
 type bytesCodec struct {

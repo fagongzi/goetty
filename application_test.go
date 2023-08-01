@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fagongzi/goetty/v2/codec"
-	"github.com/fagongzi/goetty/v2/codec/simple"
+	"github.com/fagongzi/goetty/v3/codec"
+	"github.com/fagongzi/goetty/v3/codec/simple"
 	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 )
@@ -138,12 +138,12 @@ func newTestIOSession(t *testing.T, opts ...Option[string, string]) IOSession[st
 }
 
 func TestParseAddress(t *testing.T) {
-	network, address, err := parseAdddress(testAddr)
+	network, address, err := parseAddress(testAddr)
 	assert.NoError(t, err)
 	assert.Equal(t, "tcp4", network)
 	assert.Equal(t, testAddr, address)
 
-	network, address, err = parseAdddress(testUnixSocket)
+	network, address, err = parseAddress(testUnixSocket)
 	assert.NoError(t, err)
 	assert.Equal(t, "unix", network)
 	assert.Equal(t, "/tmp/goetty.sock", address)

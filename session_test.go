@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec"
-	"github.com/fagongzi/goetty/v2/codec/length"
+	"github.com/fagongzi/goetty/v3/buf"
+	"github.com/fagongzi/goetty/v3/codec"
+	"github.com/fagongzi/goetty/v3/codec/length"
+	"github.com/fagongzi/goetty/v3/codec/simple"
 	"github.com/lni/goutils/leaktest"
 	"github.com/stretchr/testify/assert"
 )
@@ -65,7 +66,7 @@ func TestUseConn(t *testing.T) {
 			app := newTestApp(t,
 				testListenAddresses,
 				func(rs IOSession[string, string], msg string, received uint64) error {
-					if msg == "regist" {
+					if msg == "register" {
 						conns[fmt.Sprintf("%d", rs.ID())] = rs.RawConn()
 						assert.NoError(t, rs.Write(fmt.Sprintf("%d", rs.ID()), WriteOptions{Flush: true}))
 						return nil
@@ -84,7 +85,7 @@ func TestUseConn(t *testing.T) {
 			c1 := newTestIOSession(t)
 			assert.NoError(t, c1.Connect(addr, time.Second))
 			assert.True(t, c1.Connected())
-			assert.NoError(t, c1.Write("regist", WriteOptions{Flush: true}))
+			assert.NoError(t, c1.Write("register", WriteOptions{Flush: true}))
 			id1, err := c1.Read(ReadOptions{})
 			assert.NoError(t, err)
 			assert.NotEmpty(t, id1)
@@ -92,7 +93,7 @@ func TestUseConn(t *testing.T) {
 			c2 := newTestIOSession(t)
 			assert.NoError(t, c2.Connect(addr, time.Second))
 			assert.True(t, c2.Connected())
-			assert.NoError(t, c2.Write("regist", WriteOptions{Flush: true}))
+			assert.NoError(t, c2.Write("register", WriteOptions{Flush: true}))
 			id2, err := c2.Read(ReadOptions{})
 			assert.NoError(t, err)
 			assert.NotEmpty(t, id2)
@@ -147,6 +148,33 @@ func TestTLSNormal(t *testing.T) {
 			assert.Equal(t, "hello", reply)
 		})
 	}
+}
+
+func TestConnWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	addr := "192.168.100.200:8888"
+	client := newTestIOSession(t)
+	defer client.Close()
+
+	err := client.Connect(addr, time.Millisecond*200)
+	assert.Equal(t, true, err.(net.Error).Timeout())
+}
+
+func TestTLSConnWithTimeout(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	addr := "192.168.100.200:8888"
+	client := newTestIOSession(
+		t,
+		WithSessionTLSFromCertAndKeys[string, string](
+			"./etc/client-cert.pem",
+			"./etc/client-key.pem",
+			"./etc/ca.pem",
+			true),
+	)
+	err := client.Connect(addr, time.Millisecond*200)
+	assert.Equal(t, true, err.(net.Error).Timeout())
 }
 
 func TestReadWithTimeout(t *testing.T) {
@@ -209,6 +237,49 @@ func TestCloseOnAwareCreated(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	s := NewIOSession(WithSessionAware[string, string](&testAware[string, string]{}))
 	assert.NoError(t, s.Close())
+}
+
+func TestBufferedConn(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	for name, address := range testAddresses {
+		addr := address
+		t.Run(name, func(t *testing.T) {
+			cnt := uint64(0)
+			app := newTestApp(
+				t,
+				testListenAddresses,
+				func(rs IOSession[string, string], msg string, received uint64) error {
+					atomic.StoreUint64(&cnt, received)
+					assert.NoError(t, rs.Write(msg, WriteOptions{Flush: true}))
+					return nil
+				})
+			app.Start()
+			defer app.Stop()
+
+			client := newTestIOSession(t)
+			err := client.Connect(addr, time.Second)
+			assert.NoError(t, err)
+			assert.True(t, client.Connected())
+
+			assert.NoError(t, client.Write("p1", WriteOptions{Flush: true}))
+			assert.NoError(t, client.Write("p2", WriteOptions{Flush: true}))
+			reply, err := client.Read(ReadOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, "p1", reply)
+
+			bc := client.(BufferedIOSession).BufferedConn()
+			assert.NoError(t, bc.SetReadDeadline(time.Now().Add(time.Second)))
+			readBuf := buf.NewByteBuf(64)
+			n, err := io.CopyBuffer(readBuf, bc, make([]byte, 64))
+			assert.NoError(t, err)
+			assert.True(t, n > 0)
+			msg, _, _ := simple.NewStringCodec().Decode(readBuf)
+			assert.Equal(t, "p2", msg)
+
+			assert.NoError(t, client.Disconnect())
+		})
+	}
 }
 
 func BenchmarkWriteAndRead(b *testing.B) {

@@ -3,8 +3,8 @@ package example
 import (
 	"log"
 
-	"github.com/fagongzi/goetty/v2"
-	"github.com/fagongzi/goetty/v2/codec/simple"
+	"github.com/fagongzi/goetty/v3"
+	"github.com/fagongzi/goetty/v3/codec/simple"
 )
 
 // EchoServer echo server

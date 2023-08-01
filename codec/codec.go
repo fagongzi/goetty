@@ -3,7 +3,7 @@ package codec
 import (
 	"io"
 
-	"github.com/fagongzi/goetty/v2/buf"
+	"github.com/fagongzi/goetty/v3/buf"
 )
 
 // Codec message codec, used to encode message to bytes or decode bytes to message.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v3/buf"
+	"github.com/fagongzi/goetty/v3/codec"
 )
 
 const (
@@ -59,6 +59,9 @@ func (c *lengthCodec[IN, OUT]) Decode(in *buf.ByteBuf) (IN, bool, error) {
 	length := in.PeekInt(c.initialBytesToStrip + c.lengthFieldOffset)
 	if length > c.maxBodySize {
 		return msg, false, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
+	}
+	if length <= 0 {
+		return msg, false, fmt.Errorf("invalid body size: %d", length)
 	}
 
 	skip := minFrameLength + c.lengthAdjustment

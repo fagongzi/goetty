@@ -20,7 +20,7 @@ import (
 // AppOption application option
 type AppOption[IN any, OUT any] func(*server[IN, OUT])
 
-// WithAppHandleSessionFunc set the app handle session funcpl
+// WithAppHandleSessionFunc set the app handle session func
 func WithAppHandleSessionFunc[IN any, OUT any](value func(IOSession[IN, OUT]) error) AppOption[IN, OUT] {
 	return func(s *server[IN, OUT]) {
 		s.options.handleSessionFunc = value
@@ -177,7 +177,7 @@ func NewApplication[IN any, OUT any](
 	address string,
 	handleFunc func(IOSession[IN, OUT], IN, uint64) error,
 	opts ...AppOption[IN, OUT]) (NetApplication[IN, OUT], error) {
-	network, address, err := parseAdddress(address)
+	network, address, err := parseAddress(address)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func NewApplicationWithListenAddress[IN any, OUT any](
 	opts ...AppOption[IN, OUT]) (NetApplication[IN, OUT], error) {
 	listeners := make([]net.Listener, 0, len(addresses))
 	for _, address := range addresses {
-		network, address, err := parseAdddress(address)
+		network, address, err := parseAddress(address)
 		if err != nil {
 			return nil, err
 		}
@@ -386,7 +386,7 @@ func (s *server[IN, OUT]) doConnection(rs IOSession[IN, OUT]) error {
 
 		received++
 		if ce := logger.Check(zap.DebugLevel, "session read message"); ce != nil {
-			ce.Write(zap.Uint64("seqence", received))
+			ce.Write(zap.Uint64("sequence", received))
 		}
 
 		err = s.handleFunc(rs, msg, received)
@@ -438,7 +438,7 @@ func (s *server[IN, OUT]) isStarted() bool {
 	return s.mu.running
 }
 
-func parseAdddress(address string) (string, string, error) {
+func parseAddress(address string) (string, string, error) {
 	if !strings.Contains(address, "//") {
 		return "tcp4", address, nil
 	}
