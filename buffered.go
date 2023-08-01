@@ -5,21 +5,21 @@ import (
 	"net"
 )
 
-type bufferedConn struct {
+type bufferedConn[IN, OUT any] struct {
 	net.Conn
 
 	reader io.Reader
 }
 
 // newBufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first
-func newBufferedConn(conn net.Conn, session IOSession) *bufferedConn {
-	reader := io.MultiReader(session.(BufferedIOSession).InBuf(), conn)
-	return &bufferedConn{
+func newBufferedConn[IN, OUT any](conn net.Conn, session IOSession[IN, OUT]) *bufferedConn[IN, OUT] {
+	reader := io.MultiReader(session.InBuf(), conn)
+	return &bufferedConn[IN, OUT]{
 		Conn:   conn,
 		reader: reader,
 	}
 }
 
-func (c *bufferedConn) Read(b []byte) (n int, err error) {
+func (c *bufferedConn[IN, OUT]) Read(b []byte) (n int, err error) {
 	return c.reader.Read(b)
 }

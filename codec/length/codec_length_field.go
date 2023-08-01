@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v3/buf"
+	"github.com/fagongzi/goetty/v3/codec"
 )
 
 const (
@@ -13,8 +13,8 @@ const (
 	defaultMaxBodySize = 1024 * 1024 * 10
 )
 
-type lengthCodec struct {
-	baseCodec           codec.Codec
+type lengthCodec[IN any, OUT any] struct {
+	baseCodec           codec.Codec[IN, OUT]
 	lengthFieldOffset   int
 	lengthAdjustment    int
 	initialBytesToStrip int
@@ -22,7 +22,7 @@ type lengthCodec struct {
 }
 
 // New returns a default IntLengthFieldBased codec
-func New(baseCodec codec.Codec) codec.Codec {
+func New[IN any, OUT any](baseCodec codec.Codec[IN, OUT]) codec.Codec[IN, OUT] {
 	return NewWithSize(baseCodec, 0, 0, 0, defaultMaxBodySize)
 }
 
@@ -33,8 +33,12 @@ func New(baseCodec codec.Codec) codec.Codec {
 // 2. -4:                                             base decoder received: 4(length) + body
 // 3. -(4 + lengthFieldOffset):                       base decoder received: lengthFieldOffset + 4(length) + body
 // 4. -(4 + lengthFieldOffset + initialBytesToStrip): base decoder received: initialBytesToStrip + lengthFieldOffset + 4(length)
-func NewWithSize(baseCodec codec.Codec, lengthFieldOffset, lengthAdjustment, initialBytesToStrip, maxBodySize int) codec.Codec {
-	return &lengthCodec{
+func NewWithSize[IN any, OUT any](baseCodec codec.Codec[IN, OUT],
+	lengthFieldOffset,
+	lengthAdjustment,
+	initialBytesToStrip,
+	maxBodySize int) codec.Codec[IN, OUT] {
+	return &lengthCodec[IN, OUT]{
 		baseCodec:           baseCodec,
 		lengthFieldOffset:   lengthFieldOffset,
 		lengthAdjustment:    lengthAdjustment,
@@ -43,26 +47,27 @@ func NewWithSize(baseCodec codec.Codec, lengthFieldOffset, lengthAdjustment, ini
 	}
 }
 
-func (c *lengthCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
+func (c *lengthCodec[IN, OUT]) Decode(in *buf.ByteBuf) (IN, bool, error) {
+	var msg IN
 	readable := in.Readable()
 
 	minFrameLength := c.initialBytesToStrip + c.lengthFieldOffset + fieldLength
 	if readable < minFrameLength {
-		return nil, false, nil
+		return msg, false, nil
 	}
 
 	length := in.PeekInt(c.initialBytesToStrip + c.lengthFieldOffset)
 	if length > c.maxBodySize {
-		return nil, false, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
+		return msg, false, fmt.Errorf("too big body size %d, max is %d", length, c.maxBodySize)
 	}
 	if length <= 0 {
-		return nil, false, fmt.Errorf("invalid body size: %d", length)
+		return msg, false, fmt.Errorf("invalid body size: %d", length)
 	}
 
 	skip := minFrameLength + c.lengthAdjustment
 	minFrameLength += length
 	if readable < minFrameLength {
-		return nil, false, nil
+		return msg, false, nil
 	}
 
 	in.Skip(skip)
@@ -70,7 +75,7 @@ func (c *lengthCodec) Decode(in *buf.ByteBuf) (any, bool, error) {
 	return c.baseCodec.Decode(in)
 }
 
-func (c *lengthCodec) Encode(message any, out *buf.ByteBuf, conn io.Writer) error {
+func (c *lengthCodec[IN, OUT]) Encode(message OUT, out *buf.ByteBuf, conn io.Writer) error {
 	oldIndexOffset := out.Readable()
 	out.Grow(4)
 	out.SetWriteIndex(out.GetReadIndex() + oldIndexOffset + 4)

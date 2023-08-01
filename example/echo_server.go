@@ -3,14 +3,14 @@ package example
 import (
 	"log"
 
-	"github.com/fagongzi/goetty/v2"
-	"github.com/fagongzi/goetty/v2/codec/simple"
+	"github.com/fagongzi/goetty/v3"
+	"github.com/fagongzi/goetty/v3/codec/simple"
 )
 
 // EchoServer echo server
 type EchoServer struct {
 	addr string
-	app  goetty.NetApplication
+	app  goetty.NetApplication[string, string]
 }
 
 // NewEchoServer create new server
@@ -38,7 +38,7 @@ func (s *EchoServer) Stop() error {
 	return s.app.Stop()
 }
 
-func (s *EchoServer) handle(session goetty.IOSession, message any, received uint64) error {
+func (s *EchoServer) handle(session goetty.IOSession[string, string], message string, received uint64) error {
 	log.Printf("received %+v from %s, already received %d messages",
 		message,
 		session.RemoteAddress(),

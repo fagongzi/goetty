@@ -8,15 +8,15 @@ const (
 	// defaultWriteBuf write buf size
 	defaultWriteBuf = 256
 	// defaultReadCopyBuf io.CopyBuffer buffer size for read
-	defaultReadCopyBuf = 1024
+	defaultReadCopyBuf = 1024 * 64
 	// defaultWriteCopyBuf io.CopyBuffer buffer size for write
-	defaultWriteCopyBuf = 1024
+	defaultWriteCopyBuf = 1024 * 64
 )
 
 // IOSessionAware io session aware
-type IOSessionAware interface {
+type IOSessionAware[IN any, OUT any] interface {
 	// Created session created
-	Created(IOSession)
+	Created(IOSession[IN, OUT])
 	//Closed session closed
-	Closed(IOSession)
+	Closed(IOSession[IN, OUT])
 }

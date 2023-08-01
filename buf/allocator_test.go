@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAlloc(t *testing.T) {
-	alloc := newNonReusableAllocator()
-	assert.Equal(t, 10, len(alloc.Alloc(10)))
+func TestAllocate(t *testing.T) {
+	allocator := newNonReusableAllocator()
+	assert.Equal(t, 10, len(allocator.Allocate(10)))
 }

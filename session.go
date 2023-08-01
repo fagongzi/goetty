@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fagongzi/goetty/v2/buf"
-	"github.com/fagongzi/goetty/v2/codec"
+	"github.com/fagongzi/goetty/v3/buf"
+	"github.com/fagongzi/goetty/v3/codec"
 	"go.uber.org/zap"
 )
 
@@ -43,62 +43,62 @@ type ReadOptions struct {
 }
 
 // Option option to create IOSession
-type Option func(*baseIO)
+type Option[IN any, OUT any] func(*baseIO[IN, OUT])
 
 // WithSessionLogger set logger for IOSession
-func WithSessionLogger(logger *zap.Logger) Option {
-	return func(bio *baseIO) {
+func WithSessionLogger[IN any, OUT any](logger *zap.Logger) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.logger = logger
 	}
 }
 
 // WithSessionAllocator set mem allocator to build in and out ByteBuf
-func WithSessionAllocator(allocator buf.Allocator) Option {
-	return func(bio *baseIO) {
+func WithSessionAllocator[IN any, OUT any](allocator buf.Allocator) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.allocator = allocator
 	}
 }
 
 // WithSessionCodec set codec for IOSession
-func WithSessionCodec(codec codec.Codec) Option {
-	return func(bio *baseIO) {
+func WithSessionCodec[IN any, OUT any](codec codec.Codec[IN, OUT]) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.codec = codec
 	}
 }
 
-// WithSessionRWBUfferSize set read/write buf size for IOSession
-func WithSessionRWBUfferSize(read, write int) Option {
-	return func(bio *baseIO) {
+// WithSessionRWBufferSize set read/write buf size for IOSession
+func WithSessionRWBufferSize[IN any, OUT any](read, write int) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.readBufSize = read
 		bio.options.writeBufSize = write
 	}
 }
 
 // WithSessionConn set IOSession's net.Conn
-func WithSessionConn(id uint64, conn net.Conn) Option {
-	return func(bio *baseIO) {
+func WithSessionConn[IN any, OUT any](id uint64, conn net.Conn) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.conn = conn
 		bio.id = id
 	}
 }
 
 // WithSessionAware set IOSession's session aware
-func WithSessionAware(value IOSessionAware) Option {
-	return func(bio *baseIO) {
+func WithSessionAware[IN any, OUT any](value IOSessionAware[IN, OUT]) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.aware = value
 	}
 }
 
 // WithSessionReleaseMsgFunc set a func to release message once the message encode into the write buf
-func WithSessionReleaseMsgFunc(value func(any)) Option {
-	return func(bio *baseIO) {
+func WithSessionReleaseMsgFunc[IN any, OUT any](value func(any)) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.releaseMsgFunc = value
 	}
 }
 
 // WithSessionTLS set tls for client
-func WithSessionTLS(tlsConfig *tls.Config) Option {
-	return func(bio *baseIO) {
+func WithSessionTLS[IN any, OUT any](tlsConfig *tls.Config) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
 			return tls.DialWithDialer(&net.Dialer{Timeout: timeout}, network, address, tlsConfig)
 		}
@@ -107,15 +107,15 @@ func WithSessionTLS(tlsConfig *tls.Config) Option {
 
 // WithSessionDisableCompactAfterGrow set Set whether the buffer should be compressed,
 // if it is, it will reset the reader and writer index. Default is true.
-func WithSessionDisableCompactAfterGrow() Option {
-	return func(bio *baseIO) {
+func WithSessionDisableCompactAfterGrow[IN any, OUT any]() Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.disableCompactAfterGrow = true
 	}
 }
 
 // WithSessionTLSFromCertAndKeys set tls for client
-func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSkipVerify bool) Option {
-	return func(bio *baseIO) {
+func WithSessionTLSFromCertAndKeys[IN any, OUT any](certFile, keyFile, caFile string, insecureSkipVerify bool) Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.dial = func(network, address string, timeout time.Duration) (net.Conn, error) {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
@@ -142,14 +142,14 @@ func WithSessionTLSFromCertAndKeys(certFile, keyFile, caFile string, insecureSki
 
 // WithSessionDisableAutoResetInBuffer set disable auto reset in buffer. If disabled, the
 // application must reset in buffer in the read loop, otherwise there will be a memory leak.
-func WithSessionDisableAutoResetInBuffer() Option {
-	return func(bio *baseIO) {
+func WithSessionDisableAutoResetInBuffer[IN any, OUT any]() Option[IN, OUT] {
+	return func(bio *baseIO[IN, OUT]) {
 		bio.options.disableAutoResetInBuffer = true
 	}
 }
 
 // IOSession internally holds a raw net.Conn on which to provide read and write operations
-type IOSession interface {
+type IOSession[IN any, OUT any] interface {
 	// ID session id
 	ID() uint64
 	// Connect connect to address, only used at client-side
@@ -166,10 +166,10 @@ type IOSession interface {
 	// when the reference count reaches 0.
 	Ref()
 	// Read read packet from connection
-	Read(option ReadOptions) (any, error)
+	Read(option ReadOptions) (IN, error)
 	// Write encodes the msg into a []byte into the buffer according to the codec.Encode.
-	// If flush is set to flase, the data will not be written to the underlying socket.
-	Write(msg any, options WriteOptions) error
+	// If flush is set to false, the data will not be written to the underlying socket.
+	Write(msg OUT, options WriteOptions) error
 	// Flush flush the out buffer
 	Flush(timeout time.Duration) error
 	// RemoteAddress returns remote address, include ip and port
@@ -182,19 +182,19 @@ type IOSession interface {
 	// UseConn use the specified conn to handle reads and writes. Note that conn reads and
 	// writes cannot be handled in other goroutines until UseConn is called.
 	UseConn(net.Conn)
-	// OutBuf returns bytebuf which used to encode message into bytes
+	// OutBuf returns byte buffer which used to encode message into bytes
 	OutBuf() *buf.ByteBuf
+	// InBuf returns input buffer which used to decode bytes to message
+	InBuf() *buf.ByteBuf
 }
 
 // BufferedIOSession is a IOSession that can read from the in-buffer first
 type BufferedIOSession interface {
 	// BufferedConn returns a wrapped net.Conn that read from IOSession's in-buffer first
 	BufferedConn() net.Conn
-	// InBuf returns inbuf which used to decode bytes to message
-	InBuf() *buf.ByteBuf
 }
 
-type baseIO struct {
+type baseIO[IN any, OUT any] struct {
 	id                    uint64
 	state                 int32
 	conn                  net.Conn
@@ -207,8 +207,8 @@ type baseIO struct {
 	writeCopyBuf          []byte
 
 	options struct {
-		aware                             IOSessionAware
-		codec                             codec.Codec
+		aware                             IOSessionAware[IN, OUT]
+		codec                             codec.Codec[IN, OUT]
 		readBufSize, writeBufSize         int
 		readCopyBufSize, writeCopyBufSize int
 		releaseMsgFunc                    func(any)
@@ -224,8 +224,8 @@ type baseIO struct {
 }
 
 // NewIOSession create a new io session
-func NewIOSession(opts ...Option) IOSession {
-	bio := &baseIO{}
+func NewIOSession[IN any, OUT any](opts ...Option[IN, OUT]) IOSession[IN, OUT] {
+	bio := &baseIO[IN, OUT]{}
 	for _, opt := range opts {
 		opt(bio)
 	}
@@ -244,7 +244,7 @@ func NewIOSession(opts ...Option) IOSession {
 	return bio
 }
 
-func (bio *baseIO) adjust() {
+func (bio *baseIO[IN, OUT]) adjust() {
 	bio.logger = adjustLogger(bio.logger).With(zap.Uint64("session-id", bio.id))
 	if bio.options.readBufSize == 0 {
 		bio.options.readBufSize = defaultReadBuf
@@ -266,12 +266,12 @@ func (bio *baseIO) adjust() {
 	}
 }
 
-func (bio *baseIO) ID() uint64 {
+func (bio *baseIO[IN, OUT]) ID() uint64 {
 	return bio.id
 }
 
-func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) error {
-	network, address, err := parseAdddress(addressWithNetwork)
+func (bio *baseIO[IN, OUT]) Connect(addressWithNetwork string, timeout time.Duration) error {
+	network, address, err := parseAddress(addressWithNetwork)
 	if err != nil {
 		return err
 	}
@@ -311,11 +311,11 @@ func (bio *baseIO) Connect(addressWithNetwork string, timeout time.Duration) err
 	return nil
 }
 
-func (bio *baseIO) Connected() bool {
+func (bio *baseIO[IN, OUT]) Connected() bool {
 	return bio.getState() == stateConnected
 }
 
-func (bio *baseIO) Disconnect() error {
+func (bio *baseIO[IN, OUT]) Disconnect() error {
 	old := bio.getState()
 	switch old {
 	case stateReadyToConnect, stateClosed:
@@ -339,27 +339,27 @@ func (bio *baseIO) Disconnect() error {
 	return nil
 }
 
-func (bio *baseIO) Ref() {
+func (bio *baseIO[IN, OUT]) Ref() {
 	atomic.AddInt32(&bio.atomic.ref, 1)
 }
 
-func (bio *baseIO) unRef() int32 {
+func (bio *baseIO[IN, OUT]) unRef() int32 {
 	return atomic.AddInt32(&bio.atomic.ref, -1)
 }
 
-func (bio *baseIO) RawConn() net.Conn {
+func (bio *baseIO[IN, OUT]) RawConn() net.Conn {
 	return bio.conn
 }
 
-func (bio *baseIO) BufferedConn() net.Conn {
-	return newBufferedConn(bio.conn, bio)
+func (bio *baseIO[IN, OUT]) BufferedConn() net.Conn {
+	return newBufferedConn[IN, OUT](bio.conn, bio)
 }
 
-func (bio *baseIO) UseConn(conn net.Conn) {
+func (bio *baseIO[IN, OUT]) UseConn(conn net.Conn) {
 	bio.conn = conn
 }
 
-func (bio *baseIO) Close() error {
+func (bio *baseIO[IN, OUT]) Close() error {
 	bio.closeConn()
 
 	ref := bio.unRef()
@@ -401,13 +401,13 @@ OUTER:
 	return nil
 }
 
-func (bio *baseIO) Read(options ReadOptions) (any, error) {
+func (bio *baseIO[IN, OUT]) Read(options ReadOptions) (IN, error) {
+	var msg IN
 	for {
 		if !bio.Connected() {
-			return nil, ErrIllegalState
+			return msg, ErrIllegalState
 		}
 
-		var msg any
 		var err error
 		var complete bool
 		for {
@@ -426,7 +426,7 @@ func (bio *baseIO) Read(options ReadOptions) (any, error) {
 
 			if nil != err {
 				bio.in.Reset()
-				return nil, err
+				return msg, err
 			}
 
 			if complete {
@@ -440,7 +440,9 @@ func (bio *baseIO) Read(options ReadOptions) (any, error) {
 	}
 }
 
-func (bio *baseIO) Write(msg any, options WriteOptions) error {
+func (bio *baseIO[IN, OUT]) Write(
+	msg OUT,
+	options WriteOptions) error {
 	if !bio.Connected() {
 		return ErrIllegalState
 	}
@@ -461,7 +463,7 @@ func (bio *baseIO) Write(msg any, options WriteOptions) error {
 	return nil
 }
 
-func (bio *baseIO) Flush(timeout time.Duration) error {
+func (bio *baseIO[IN, OUT]) Flush(timeout time.Duration) error {
 	defer bio.out.Reset()
 	if !bio.Connected() {
 		return ErrIllegalState
@@ -480,19 +482,20 @@ func (bio *baseIO) Flush(timeout time.Duration) error {
 	return err
 }
 
-func (bio *baseIO) RemoteAddress() string {
+func (bio *baseIO[IN, OUT]) RemoteAddress() string {
 	return bio.remoteAddr
 }
 
-func (bio *baseIO) OutBuf() *buf.ByteBuf {
+func (bio *baseIO[IN, OUT]) OutBuf() *buf.ByteBuf {
 	return bio.out
 }
 
-func (bio *baseIO) InBuf() *buf.ByteBuf {
+func (bio *baseIO[IN, OUT]) InBuf() *buf.ByteBuf {
 	return bio.in
 }
 
-func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {
+func (bio *baseIO[IN, OUT]) readFromConn(timeout time.Duration) (IN, bool, error) {
+	var v IN
 	if timeout != 0 {
 		bio.conn.SetReadDeadline(time.Now().Add(timeout))
 	} else {
@@ -501,30 +504,30 @@ func (bio *baseIO) readFromConn(timeout time.Duration) (any, bool, error) {
 
 	n, err := io.CopyBuffer(bio.in, bio.conn, bio.readCopyBuf)
 	if err != nil {
-		return nil, false, err
+		return v, false, err
 	}
 	if n == 0 {
-		return nil, false, io.EOF
+		return v, false, io.EOF
 	}
 	return bio.options.codec.Decode(bio.in)
 }
 
-func (bio *baseIO) closeConn() {
+func (bio *baseIO[IN, OUT]) closeConn() {
 	if bio.conn != nil {
 		if err := bio.conn.Close(); err != nil {
-			bio.logger.Error("close conneciton failed",
+			bio.logger.Error("close connection failed",
 				zap.Error(err))
 			return
 		}
-		bio.logger.Debug("conneciton disconnected")
+		bio.logger.Debug("connection disconnected")
 	}
 }
 
-func (bio *baseIO) getState() int32 {
+func (bio *baseIO[IN, OUT]) getState() int32 {
 	return atomic.LoadInt32(&bio.state)
 }
 
-func (bio *baseIO) initConn() {
+func (bio *baseIO[IN, OUT]) initConn() {
 	bio.remoteAddr = bio.conn.RemoteAddr().String()
 	bio.localAddr = bio.conn.LocalAddr().String()
 	bio.in = buf.NewByteBuf(bio.options.readBufSize,
