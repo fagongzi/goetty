@@ -12,20 +12,20 @@ const (
 	defaultIOCopyBufferSize = 1024 * 4
 )
 
-// Option bytebuf option
+// Option byte buffer option
 type Option func(*ByteBuf)
 
-// WithMemAllocator Set the memory allocator, when Bytebuf is initialized, it needs to
+// WithMemAllocator Set the memory allocator, when ByteBuf is initialized, it needs to
 // allocate a []byte of the size specified by capacity from memory. When ByteBuf.Release
 // is called, the memory will be freed back to the allocator.
-func WithMemAllocator(alloc Allocator) Option {
+func WithMemAllocator(allocator Allocator) Option {
 	return func(bb *ByteBuf) {
-		bb.options.alloc = alloc
+		bb.options.allocator = allocator
 	}
 }
 
 // WithMinGowSize set minimum Grow size. When there is not enough space left
-// in the Bytebuf, write data needs to be expanded.
+// in the ByteBuf, write data needs to be expanded.
 func WithMinGowSize(minGrowSize int) Option {
 	return func(bb *ByteBuf) {
 		bb.options.minGrowSize = minGrowSize
@@ -82,14 +82,14 @@ type ByteBuf struct {
 	markedIndex int
 
 	options struct {
-		alloc                   Allocator
+		allocator               Allocator
 		minGrowSize             int
 		ioCopyBufferSize        int
 		disableCompactAfterGrow bool
 	}
 }
 
-// NewByteBuf create bytebuf with options
+// NewByteBuf create byte buffer with options
 func NewByteBuf(capacity int, opts ...Option) *ByteBuf {
 	b := &ByteBuf{
 		readerIndex: 0,
@@ -99,13 +99,13 @@ func NewByteBuf(capacity int, opts ...Option) *ByteBuf {
 		opt(b)
 	}
 	b.adjust()
-	b.buf = b.options.alloc.Alloc(capacity)
+	b.buf = b.options.allocator.Allocate(capacity)
 	return b
 }
 
 func (b *ByteBuf) adjust() {
-	if b.options.alloc == nil {
-		b.options.alloc = newNonReusableAllocator()
+	if b.options.allocator == nil {
+		b.options.allocator = newNonReusableAllocator()
 	}
 	if b.options.minGrowSize == 0 {
 		b.options.minGrowSize = defaultMinGrowSize
@@ -117,7 +117,7 @@ func (b *ByteBuf) adjust() {
 
 // Close close the ByteBuf
 func (b *ByteBuf) Close() {
-	b.options.alloc.Free(b.buf)
+	b.options.allocator.Free(b.buf)
 	b.buf = nil
 }
 
@@ -204,7 +204,7 @@ func (b *ByteBuf) Skip(n int) {
 	b.readerIndex += n
 }
 
-// Slice returns a read only bytebuf slice. ByteBuf may be continuously written to, causing the
+// Slice returns a read only byte buffer slice. ByteBuf may be continuously written to, causing the
 // internal buf to reapply, thus invalidating the sliced data in buf[s:e]. Slice only records the
 // starting location of the data, and it is safe to read the data when it is certain that the ByteBuf
 // will not be written to.
@@ -248,7 +248,7 @@ func (b *ByteBuf) ReadByte() (byte, error) {
 	return v, nil
 }
 
-// MustReadByte is similar to ReadByte, buf panic if error retrurned
+// MustReadByte is similar to ReadByte, buf panic if error returned.
 func (b *ByteBuf) MustReadByte() byte {
 	v, err := b.ReadByte()
 	if err != nil {
@@ -258,18 +258,18 @@ func (b *ByteBuf) MustReadByte() byte {
 }
 
 // ReadBytes read bytes from buf. It's will copy the data to a new byte array.
-func (b *ByteBuf) ReadBytes(n int) (readed int, data []byte) {
-	readed = n
-	if readed > b.Readable() {
-		readed = b.Readable()
+func (b *ByteBuf) ReadBytes(n int) (read int, data []byte) {
+	read = n
+	if read > b.Readable() {
+		read = b.Readable()
 	}
-	if readed == 0 {
+	if read == 0 {
 		return
 	}
 
-	data = make([]byte, readed)
-	copy(data, b.buf[b.readerIndex:b.readerIndex+readed])
-	b.readerIndex += readed
+	data = make([]byte, read)
+	copy(data, b.buf[b.readerIndex:b.readerIndex+read])
+	b.readerIndex += read
 	return
 }
 
@@ -281,7 +281,7 @@ func (b *ByteBuf) ReadMarkedData() []byte {
 }
 
 // ReadAll read all readable bytes.
-func (b *ByteBuf) ReadAll() (readed int, data []byte) {
+func (b *ByteBuf) ReadAll() (read int, data []byte) {
 	return b.ReadBytes(b.Readable())
 }
 
@@ -356,7 +356,7 @@ func (b *ByteBuf) ReadUint64() uint64 {
 	return Byte2Uint64(b.buf[b.readerIndex-8 : b.readerIndex])
 }
 
-// Writeable return how many bytes can be wirte into buf
+// Writeable return how many bytes can be write into buf
 func (b *ByteBuf) Writeable() int {
 	return b.capacity() - b.writerIndex
 }
@@ -442,7 +442,7 @@ func (b *ByteBuf) Grow(n int) {
 			target += step
 		}
 
-		newBuf := b.options.alloc.Alloc(target)
+		newBuf := b.options.allocator.Allocate(target)
 		if b.options.disableCompactAfterGrow {
 			copy(newBuf, b.buf)
 		} else {
@@ -452,7 +452,7 @@ func (b *ByteBuf) Grow(n int) {
 			b.writerIndex = offset
 		}
 
-		b.options.alloc.Free(b.buf)
+		b.options.allocator.Free(b.buf)
 		b.buf = newBuf
 	}
 }

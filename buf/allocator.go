@@ -2,9 +2,9 @@ package buf
 
 // Allocator memory allocation for ByteBuf
 type Allocator interface {
-	// Alloc allocate a []byte with len(data) >= size, and the returned []byte cannot
+	// Allocate allocate a []byte with len(data) >= size, and the returned []byte cannot
 	// be expanded in use.
-	Alloc(capacity int) []byte
+	Allocate(capacity int) []byte
 	// Free free the allocated memory
 	Free([]byte)
 }
@@ -16,7 +16,7 @@ func newNonReusableAllocator() Allocator {
 	return &nonReusableAllocator{}
 }
 
-func (ma *nonReusableAllocator) Alloc(size int) []byte {
+func (ma *nonReusableAllocator) Allocate(size int) []byte {
 	return make([]byte, size)
 }
 

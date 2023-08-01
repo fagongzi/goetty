@@ -33,8 +33,8 @@ type proxy[IN any, OUT any] struct {
 	server  NetApplication[IN, OUT]
 	mu      struct {
 		sync.Mutex
-		seq       uint64
-		upstreams []*upstream
+		seq          uint64
+		upstreamList []*upstream
 	}
 }
 
@@ -57,7 +57,7 @@ func (p *proxy[IN, OUT]) Stop() error {
 func (p *proxy[IN, OUT]) AddUpStream(address string, connectTimeout time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.mu.upstreams = append(p.mu.upstreams, &upstream{
+	p.mu.upstreamList = append(p.mu.upstreamList, &upstream{
 		address:        address,
 		connectTimeout: connectTimeout,
 	})
@@ -67,11 +67,11 @@ func (p *proxy[IN, OUT]) getUpStream() *upstream {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	n := uint64(len(p.mu.upstreams))
+	n := uint64(len(p.mu.upstreamList))
 	if n == 0 {
 		return nil
 	}
-	up := p.mu.upstreams[p.mu.seq%n]
+	up := p.mu.upstreamList[p.mu.seq%n]
 	p.mu.seq++
 	return up
 }
